@@ -91,6 +91,10 @@
   .topbar-title h1 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
   .topbar-title .subtitle { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
 
+  .topbar-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+  .topbar-auth-btn { padding: 6px 12px; font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+  .topbar-auth-btn[hidden] { display: none; }
+
   .status-pill {
     display: inline-flex;
     align-items: center;
@@ -177,7 +181,7 @@
   .row { display: flex; gap: 10px; }
   .row label { flex: 1; }
 
-  input[type="text"], input[type="time"], select, textarea {
+  input[type="text"], input[type="time"], input[type="email"], input[type="password"], select, textarea {
     font: inherit;
     padding: 7px 9px;
     border: 1px solid var(--border);
@@ -358,6 +362,8 @@
     .topbar-title h1 { font-size: 17px; }
     .topbar-title .subtitle { display: none; }
     .status-pill { padding: 5px 9px; font-size: 11px; }
+    .topbar-actions { gap: 7px; }
+    .topbar-auth-btn { padding: 5px 9px; font-size: 11px; }
 
     .sidebar {
       position: fixed;
@@ -414,7 +420,11 @@
       <h1>Живое расписание</h1>
       <p class="subtitle">Ссылкой можно поделиться — изменения видят все зрители сразу</p>
     </div>
-    <div id="status-pill" class="status-pill"><span class="dot"></span><span id="status-text">Синхронизировано</span></div>
+    <div class="topbar-actions">
+      <button type="button" id="btn-login" class="btn-secondary topbar-auth-btn">Войти</button>
+      <button type="button" id="btn-logout" class="btn-secondary topbar-auth-btn" hidden="">Выйти</button>
+      <div id="status-pill" class="status-pill"><span class="dot"></span><span id="status-text">Синхронизировано</span></div>
+    </div>
   </header>
 
   <div class="layout">
@@ -525,6 +535,20 @@
         <div class="spacer"></div>
         <button type="button" id="e-cancel" class="btn-secondary">Отмена</button>
         <button type="submit" class="btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="modal-backdrop" id="auth-backdrop">
+  <div class="modal">
+    <h2>Вход для редактирования</h2>
+    <form id="auth-form">
+      <label>Email<input type="email" id="auth-email" autocomplete="username" required=""></label>
+      <label>Пароль<input type="password" id="auth-password" autocomplete="current-password" required=""></label>
+      <div class="modal-actions">
+        <div class="spacer"></div>
+        <button type="button" id="auth-cancel" class="btn-secondary">Отмена</button>
+        <button type="submit" class="btn-primary">Войти</button>
       </div>
     </form>
   </div>

@@ -1,5 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getDatabase, ref, onValue, set } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
 
 (function () {
@@ -86,11 +87,16 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
   var gridEl = document.getElementById('schedule-grid');
   var state = clone(DEFAULT_STATE);
   var editingId = null;
-  var isReadOnly = false;
+  // Starts read-only: editing unlocks only once Firebase Auth reports a
+  // signed-in user (see onAuthStateChanged in connectFirebase).
+  var isReadOnly = true;
   var currentLayout = null;
 
-  // Firebase Realtime Database wiring.
+  // Firebase wiring.
   var scheduleRef = null;
+  var authInstance = null;
+  var currentUser = null;
+  var dbExists = false;       // whether the /schedule node already has data
   var isConnected = false;
   var pendingWrite = false;   // a local mutation is waiting for its debounced write
   var syncTimer = null;
@@ -307,21 +313,33 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     setStatus(isConnected ? 'idle' : 'offline');
   }
 
-  // Kept as a stub for a possible future access model. Nothing calls it now:
-  // anyone with the link can edit.
+  // Sync the whole UI to the current isReadOnly value: sidebar forms, import
+  // controls, the readonly notice, and a re-render (event drag handles and the
+  // category delete buttons are drawn conditionally on isReadOnly).
+  function applyReadOnlyUI() {
+    var disable = isReadOnly;
+    document.getElementById('readonly-notice').hidden = !isReadOnly;
+    document.getElementById('event-form').querySelectorAll('input,select,textarea,button').forEach(function (el) { el.disabled = disable; });
+    document.getElementById('category-form').querySelectorAll('input,button').forEach(function (el) { el.disabled = disable; });
+    document.getElementById('btn-clear').disabled = disable;
+    document.getElementById('import-text').disabled = disable;
+    document.getElementById('btn-import').disabled = disable;
+    document.getElementById('btn-import-file').disabled = disable;
+    render();
+    renderCategoryList();
+    refreshConnectionStatus();
+  }
+
   function enterReadOnly() {
-    if (isReadOnly) return;
+    if (isReadOnly) { applyReadOnlyUI(); return; }
     isReadOnly = true;
-    setStatus('readonly');
-    document.getElementById('readonly-notice').hidden = false;
-    document.getElementById('event-form').querySelectorAll('input,select,textarea,button').forEach(function (el) { el.disabled = true; });
-    document.getElementById('category-form').querySelectorAll('input,button').forEach(function (el) { el.disabled = true; });
-    document.getElementById('btn-clear').disabled = true;
-    document.getElementById('import-text').disabled = true;
-    document.getElementById('btn-import').disabled = true;
-    document.getElementById('btn-import-file').disabled = true;
-    document.querySelectorAll('.category-list .cat-del').forEach(function (el) { el.hidden = true; });
-    renderEvents();
+    applyReadOnlyUI();
+  }
+
+  function exitReadOnly() {
+    if (!isReadOnly) return;
+    isReadOnly = false;
+    applyReadOnlyUI();
   }
 
   // Every mutation goes through here: apply locally + render immediately, then
@@ -339,7 +357,9 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
 
   function flushSync() {
     syncTimer = null;
-    if (!scheduleRef) { pendingWrite = false; refreshConnectionStatus(); return; }
+    // The RTDB rules only accept writes from the signed-in owner, so never
+    // attempt one otherwise — avoids stray permission-denied errors.
+    if (!scheduleRef || !currentUser) { pendingWrite = false; refreshConnectionStatus(); return; }
     set(scheduleRef, clone(state)).then(function () {
       pendingWrite = false;
       refreshConnectionStatus();
@@ -382,16 +402,41 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     renderCategoryList();
   }
 
+  // Seeds the default schedule into an empty database — but only once we have
+  // a signed-in user (writes are owner-only). A logged-out visitor viewing an
+  // empty database just sees the built-in DEFAULT_STATE locally.
+  function maybeSeedDatabase() {
+    if (dbExists || !currentUser || !scheduleRef) return;
+    set(scheduleRef, clone(DEFAULT_STATE)).catch(function (err) {
+      console.error('Не удалось записать начальные данные', err);
+    });
+  }
+
   function connectFirebase() {
     var db;
     try {
       var app = initializeApp(firebaseConfig);
       db = getDatabase(app);
+      authInstance = getAuth(app);
     } catch (e) {
       console.error('Не удалось инициализировать Firebase. Проверьте firebase-config.js', e);
       setStatus('offline');
       return;
     }
+
+    // Firebase persists the session (browserLocalPersistence by default), so
+    // this fires with the previously signed-in user on reload without a
+    // re-login prompt.
+    onAuthStateChanged(authInstance, function (user) {
+      currentUser = user || null;
+      updateAuthUI();
+      if (currentUser) {
+        exitReadOnly();
+        maybeSeedDatabase();
+      } else {
+        enterReadOnly();
+      }
+    });
 
     scheduleRef = ref(db, SCHEDULE_PATH);
 
@@ -402,12 +447,11 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
 
     onValue(scheduleRef, function (snap) {
       if (!snap.exists()) {
-        // Fresh database — seed it once with the default schedule.
-        set(scheduleRef, clone(DEFAULT_STATE)).catch(function (err) {
-          console.error('Не удалось записать начальные данные', err);
-        });
+        dbExists = false;
+        maybeSeedDatabase();
         return;
       }
+      dbExists = true;
       // Don't stomp on edits the local user is still making; the echo of our
       // own write will re-sync once the debounce has flushed. A snapshot that
       // lands mid drag/resize is stashed and applied when the gesture ends.
@@ -417,6 +461,77 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     }, function (err) {
       console.error('Ошибка чтения из Firebase', err);
       setStatus('offline');
+    });
+  }
+
+  function updateAuthUI() {
+    var login = document.getElementById('btn-login');
+    var logout = document.getElementById('btn-logout');
+    if (login) login.hidden = !!currentUser;
+    if (logout) logout.hidden = !currentUser;
+  }
+
+  function authErrorText(err) {
+    var code = (err && err.code) || '';
+    switch (code) {
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+        return 'Неверный email или пароль.';
+      case 'auth/invalid-email':
+        return 'Некорректный адрес email.';
+      case 'auth/user-disabled':
+        return 'Эта учётная запись отключена.';
+      case 'auth/too-many-requests':
+        return 'Слишком много попыток входа. Попробуйте позже.';
+      case 'auth/network-request-failed':
+        return 'Нет соединения с сервером. Проверьте интернет.';
+      default:
+        return 'Не удалось войти.' + ((err && err.message) ? ' ' + err.message : '');
+    }
+  }
+
+  function openAuthModal() {
+    document.getElementById('auth-backdrop').classList.add('open');
+    var email = document.getElementById('auth-email');
+    if (email) { try { email.focus(); } catch (e) { } }
+  }
+
+  function closeAuthModal() {
+    document.getElementById('auth-backdrop').classList.remove('open');
+  }
+
+  function bindAuth() {
+    document.getElementById('btn-login').addEventListener('click', openAuthModal);
+
+    document.getElementById('btn-logout').addEventListener('click', function () {
+      if (!authInstance) return;
+      signOut(authInstance).catch(function (err) {
+        showDialog('Не удалось выйти. ' + ((err && err.message) || ''), false);
+      });
+    });
+
+    document.getElementById('auth-cancel').addEventListener('click', closeAuthModal);
+
+    var backdrop = document.getElementById('auth-backdrop');
+    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) closeAuthModal(); });
+
+    document.getElementById('auth-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (!authInstance) { showDialog('Firebase не инициализирован. Проверьте firebase-config.js.', false); return; }
+      var email = document.getElementById('auth-email').value.trim();
+      var password = document.getElementById('auth-password').value;
+      if (!email || !password) return;
+      var submitBtn = e.target.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      signInWithEmailAndPassword(authInstance, email, password).then(function () {
+        document.getElementById('auth-password').value = '';
+        closeAuthModal();
+      }).catch(function (err) {
+        showDialog(authErrorText(err), false);
+      }).finally(function () {
+        if (submitBtn) submitBtn.disabled = false;
+      });
     });
   }
 
@@ -968,9 +1083,14 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     bindForms();
     bindImport();
     bindDialog();
+    bindAuth();
     bindSidebarToggle();
     bindSidebarBackdrop();
     bindDayTabs();
+
+    // Locked until Firebase Auth reports a signed-in user.
+    updateAuthUI();
+    applyReadOnlyUI();
 
     connectFirebase();
   }
