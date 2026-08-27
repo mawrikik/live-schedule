@@ -5,6 +5,7 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
 
 (function () {
   'use strict';
+  // build check: af152d1 follow-up
 
   // Seed data written to the database ONCE, and only if an explicit get()
   // check proves the node is genuinely empty AND has no /schedule/_seeded
