@@ -261,7 +261,12 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
         total++;
         var parsed = parseTimeCell(cell);
         if (!parsed) { skipped++; continue; }
-        events.push({ id: uid(), title: name, day: day, start: parsed.start, end: parsed.end, categoryId: defaultCategoryId, notes: '' });
+        // Snap to the 15-min grid, like every other way an event enters the
+        // board (drag/resize/form). Imported times such as 14:10 or 12:50 are
+        // otherwise off-grid, which the database rules reject.
+        var st = clamp(snap(parsed.start), DAY_START, DAY_END - MIN_DURATION);
+        var en = clamp(snap(parsed.end), st + MIN_DURATION, DAY_END);
+        events.push({ id: uid(), title: name, day: day, start: st, end: en, categoryId: defaultCategoryId, notes: '' });
       }
     }
     return { events: events, total: total, skipped: skipped };
