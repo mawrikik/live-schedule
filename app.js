@@ -486,6 +486,23 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     });
   }
 
+  function handleWriteError(err) {
+    console.error('Не удалось записать в Firebase', err);
+    pendingWrite = false;
+    refreshConnectionStatus();
+    var code = (err && (err.code || err.message)) || '';
+    if (/permission_denied|PERMISSION_DENIED/i.test(code)) {
+      var uid = (currentUser && currentUser.uid) || '(не определён)';
+      showDialog(
+        'База отклонила запись: у этой учётной записи нет прав на изменение расписания.\n\n' +
+        'Ваш UID: ' + uid + '\n\n' +
+        'Добавьте его в правила Realtime Database (узел "schedule", ".write") ' +
+        'или войдите под учётной записью владельца.', false);
+      return;
+    }
+    showDialog('Не удалось сохранить изменения. Попробуйте ещё раз.', false);
+  }
+
   function flushSync() {
     syncTimer = null;
     // Never write unless: Firebase is ready, the owner is signed in (RTDB
@@ -498,21 +515,13 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
       // bad data, so this needs its own try/catch — .catch() below wouldn't see it.
       writePromise = set(scheduleRef, clone(state));
     } catch (err) {
-      console.error('Не удалось записать в Firebase', err);
-      pendingWrite = false;
-      refreshConnectionStatus();
-      showDialog('Не удалось сохранить изменения. Попробуйте ещё раз.', false);
+      handleWriteError(err);
       return;
     }
     writePromise.then(function () {
       pendingWrite = false;
       refreshConnectionStatus();
-    }).catch(function (err) {
-      console.error('Не удалось записать в Firebase', err);
-      pendingWrite = false;
-      refreshConnectionStatus();
-      showDialog('Не удалось сохранить изменения. Попробуйте ещё раз.', false);
-    });
+    }).catch(handleWriteError);
   }
 
   // Firebase drops empty arrays/objects, so a round-tripped node can be
