@@ -1,15 +1,15 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getDatabase, ref, onValue, set } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+import { getDatabase, ref, onValue, get, set } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
 
 (function () {
   'use strict';
 
-  // Seed used only when the Realtime Database node is still empty (first run
-  // against a fresh project). Once the database has data, it is the single
-  // source of truth and this is never read again. Schema is unchanged from
-  // the original artifact: { categories, events, nameColors }.
+  // Seed data written to the database ONCE, and only if an explicit get()
+  // check proves the node is genuinely empty AND has no /schedule/_seeded
+  // flag (see seedIfEmpty). It is never used as live state and never written
+  // on a normal load. Schema: { categories, events, nameColors }.
   var DEFAULT_STATE = {
     "categories": [
       { "id": "cat-class", "name": "Занятие", "color": "#4f6bff", "isClass": true },
@@ -85,7 +85,10 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
 
   var gridEl = document.getElementById('schedule-grid');
-  var state = clone(DEFAULT_STATE);
+  // Live state starts EMPTY (only the base categories, so the <select>s work).
+  // Nothing is shown or written until the first onValue() snapshot arrives —
+  // this is what prevents DEFAULT_STATE from ever overwriting real data.
+  var state = { categories: clone(DEFAULT_STATE.categories), events: [], nameColors: {} };
   var editingId = null;
   // Starts read-only: editing unlocks only once Firebase Auth reports a
   // signed-in user (see onAuthStateChanged in connectFirebase).
@@ -96,7 +99,8 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
   var scheduleRef = null;
   var authInstance = null;
   var currentUser = null;
-  var dbExists = false;       // whether the /schedule node already has data
+  var stateLoaded = false;    // first onValue() snapshot from the server has arrived
+  var seedChecked = false;    // the one-time "is the DB empty?" get() check has run
   var isConnected = false;
   var pendingWrite = false;   // a local mutation is waiting for its debounced write
   var syncTimer = null;
@@ -298,17 +302,21 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     } else if (mode === 'offline') {
       pill.classList.add('readonly');
       text.textContent = 'Нет соединения';
+    } else if (mode === 'loading') {
+      pill.classList.remove('readonly');
+      text.textContent = 'Загрузка…';
     } else {
       pill.classList.remove('readonly');
       text.textContent = 'Синхронизировано';
     }
   }
 
-  // Reflects the real Realtime Database connection: "Сохранение…" while a
-  // write is queued or in flight, "Нет соединения" when .info/connected is
-  // false, "Синхронизировано" otherwise.
+  // Reflects the real Realtime Database state: "Загрузка…" until the first
+  // snapshot arrives, "Сохранение…" while a write is queued/in flight,
+  // "Нет соединения" when .info/connected is false, "Синхронизировано" otherwise.
   function refreshConnectionStatus() {
     if (isReadOnly) { setStatus('readonly'); return; }
+    if (!stateLoaded) { setStatus('loading'); return; }
     if (pendingWrite || syncTimer) { setStatus('saving'); return; }
     setStatus(isConnected ? 'idle' : 'offline');
   }
@@ -354,7 +362,7 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
   // Push the current state to Firebase on a 500ms debounce so a burst of quick
   // edits collapses into one write.
   function scheduleWrite() {
-    if (isReadOnly) return;
+    if (isReadOnly || !stateLoaded) return;
     pendingWrite = true;
     setStatus('saving');
     if (syncTimer) clearTimeout(syncTimer);
@@ -362,12 +370,14 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
   }
 
   // Every mutation goes through here: snapshot the pre-mutation state for undo,
-  // apply the change, render, and schedule the write.
+  // apply the change, render, and schedule the write. Refuses to run until the
+  // real data has loaded from the server, so a local edit can never be based
+  // on (and then persist) the empty placeholder state.
   function commit(mutateFn) {
+    if (isReadOnly || !stateLoaded) return;
     var before = clone(state);
     mutateFn();
     render();
-    if (isReadOnly) return;
     undoStack.push(before);
     if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
     redoStack.length = 0;
@@ -439,9 +449,10 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
 
   function flushSync() {
     syncTimer = null;
-    // The RTDB rules only accept writes from the signed-in owner, so never
-    // attempt one otherwise — avoids stray permission-denied errors.
-    if (!scheduleRef || !currentUser) { pendingWrite = false; refreshConnectionStatus(); return; }
+    // Never write unless: Firebase is ready, the owner is signed in (RTDB
+    // rules reject anyone else), and the real data has loaded (so we can't
+    // push the empty placeholder over it).
+    if (!scheduleRef || !currentUser || !stateLoaded) { pendingWrite = false; refreshConnectionStatus(); return; }
     set(scheduleRef, clone(state)).then(function () {
       pendingWrite = false;
       refreshConnectionStatus();
@@ -462,7 +473,9 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
       : clone(DEFAULT_STATE.categories);
     var events = Array.isArray(raw.events) ? raw.events.filter(Boolean) : [];
     var nameColors = (raw.nameColors && typeof raw.nameColors === 'object') ? raw.nameColors : {};
-    return { categories: categories, events: events, nameColors: nameColors };
+    var out = { categories: categories, events: events, nameColors: nameColors };
+    if (raw._seeded) out._seeded = true; // carry the one-time seed marker through
+    return out;
   }
 
   function beginInteraction() { isInteracting = true; }
@@ -484,14 +497,30 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     renderCategoryList();
   }
 
-  // Seeds the default schedule into an empty database — but only once we have
-  // a signed-in user (writes are owner-only). A logged-out visitor viewing an
-  // empty database just sees the built-in DEFAULT_STATE locally.
-  function maybeSeedDatabase() {
-    if (dbExists || !currentUser || !scheduleRef) return;
-    set(scheduleRef, clone(DEFAULT_STATE)).catch(function (err) {
-      console.error('Не удалось записать начальные данные', err);
-    });
+  // One-time, first-run-only seeding. Runs at most once per page load, only
+  // when signed in and connected. Does an explicit get() (single read straight
+  // from the server) and writes DEFAULT_STATE *only* if the node truly does
+  // not exist AND carries no /schedule/_seeded marker. After a successful seed
+  // the marker is set, so this can never fire twice — not even by accident, on
+  // any device. It is NOT driven by onValue(), so it cannot lose a race with
+  // the real data arriving.
+  async function seedIfEmpty() {
+    if (seedChecked || !scheduleRef || !currentUser || !isConnected) return;
+    seedChecked = true;
+    try {
+      var snap = await get(scheduleRef);
+      // Seed only if the node is truly absent. Any existing content — real
+      // data, or just the /schedule/_seeded marker from a previous seed —
+      // makes snap.exists() true and blocks a second seed forever.
+      if (snap.exists()) return;
+      var seed = clone(DEFAULT_STATE);
+      seed._seeded = true;
+      await set(scheduleRef, seed);
+      console.log('[seed] база была пуста — записаны стартовые данные один раз');
+    } catch (e) {
+      seedChecked = false;                  // let a later auth/connect retry
+      console.error('[seed] проверка не удалась', e);
+    }
   }
 
   function connectFirebase() {
@@ -514,7 +543,7 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
       updateAuthUI();
       if (currentUser) {
         exitReadOnly();
-        maybeSeedDatabase();
+        seedIfEmpty();
       } else {
         enterReadOnly();
       }
@@ -525,21 +554,34 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     onValue(ref(db, '.info/connected'), function (snap) {
       isConnected = snap.val() === true;
       refreshConnectionStatus();
+      if (isConnected) seedIfEmpty();
     });
 
+    // The single source of truth. state is only ever replaced from here; the
+    // first snapshot flips stateLoaded, which is what unblocks commits/writes.
     onValue(scheduleRef, function (snap) {
-      if (!snap.exists()) {
-        dbExists = false;
-        maybeSeedDatabase();
-        return;
+      var val = snap.val();
+      var hasData = val && typeof val === 'object';
+
+      if (hasData) {
+        // Don't stomp on edits the local user is still making; the echo of our
+        // own write will re-sync once the debounce has flushed. A snapshot that
+        // lands mid drag/resize is stashed and applied when the gesture ends.
+        if (pendingWrite || syncTimer) {
+          // keep current local state
+        } else if (isInteracting) {
+          pendingRemote = val;
+        } else {
+          applyRemoteState(val);
+        }
       }
-      dbExists = true;
-      // Don't stomp on edits the local user is still making; the echo of our
-      // own write will re-sync once the debounce has flushed. A snapshot that
-      // lands mid drag/resize is stashed and applied when the gesture ends.
-      if (pendingWrite || syncTimer) return;
-      if (isInteracting) { pendingRemote = snap.val(); return; }
-      applyRemoteState(snap.val());
+      // Empty node (hasData === false): keep the empty placeholder on screen.
+      // seedIfEmpty() — not this handler — decides whether to populate it.
+
+      if (!stateLoaded) {
+        stateLoaded = true;
+        refreshConnectionStatus();
+      }
     }, function (err) {
       console.error('Ошибка чтения из Firebase', err);
       setStatus('offline');
