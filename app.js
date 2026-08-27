@@ -396,19 +396,41 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
 
   function bindUndoRedo() {
     document.addEventListener('keydown', function (e) {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      var key = (e.key || '').toLowerCase();
-      var isUndo = key === 'z' && !e.shiftKey && !e.altKey;
-      var isRedo = (key === 'z' && e.shiftKey && !e.altKey) || (key === 'y' && !e.shiftKey && !e.altKey);
-      if (!isUndo && !isRedo) return;
+      if ((!e.ctrlKey && !e.metaKey) || e.altKey) return;
+
+      // Use e.code (physical key), not e.key: on a Cyrillic keyboard layout
+      // e.key for the Z key is 'я', so `e.key === 'z'` would silently fail.
+      var isZ = e.code === 'KeyZ' || (e.key || '').toLowerCase() === 'z';
+      var isY = e.code === 'KeyY' || (e.key || '').toLowerCase() === 'y';
+      if (!isZ && !isY) return;
+
+      var isUndo = isZ && !e.shiftKey;
+      var isRedo = (isZ && e.shiftKey) || (isY && !e.shiftKey);
+
+      // TEMP diagnostic — remove once Ctrl+Z is confirmed working on the live site.
+      console.log('[undo] Ctrl+Z нажат', {
+        key: e.key, code: e.code, shift: e.shiftKey,
+        action: isUndo ? 'undo' : 'redo',
+        isReadOnly: isReadOnly, signedIn: !!currentUser,
+        undoStack: undoStack.length, redoStack: redoStack.length
+      });
 
       // Let the browser handle Ctrl+Z inside text fields, and don't fire while
       // a modal (edit / auth / confirm) is open or the board is read-only.
       var t = e.target;
       var tag = t && t.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
-      if (document.querySelector('.modal-backdrop.open')) return;
-      if (isReadOnly) return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) {
+        console.log('[undo] пропущено: фокус в поле ввода (' + tag + ')');
+        return;
+      }
+      if (document.querySelector('.modal-backdrop.open')) {
+        console.log('[undo] пропущено: открыт модальный диалог');
+        return;
+      }
+      if (isReadOnly) {
+        console.log('[undo] пропущено: режим «только просмотр» (нужно войти)');
+        return;
+      }
 
       e.preventDefault();
       if (isUndo) undo(); else redo();
