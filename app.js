@@ -331,6 +331,7 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
   }
 
   function enterReadOnly() {
+    clearHistory();
     if (isReadOnly) { applyReadOnlyUI(); return; }
     isReadOnly = true;
     applyReadOnlyUI();
@@ -342,17 +343,76 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     applyReadOnlyUI();
   }
 
-  // Every mutation goes through here: apply locally + render immediately, then
-  // push the whole /schedule node to Firebase on a 500ms debounce so a burst
-  // of quick edits collapses into one write.
-  function commit(mutateFn) {
-    mutateFn();
-    render();
+  // Undo/redo history: snapshots of the whole state, newest last. Cleared on
+  // reload (in-memory only, like a text editor's undo buffer).
+  var undoStack = [];
+  var redoStack = [];
+  var HISTORY_LIMIT = 100;
+
+  function clearHistory() { undoStack.length = 0; redoStack.length = 0; }
+
+  // Push the current state to Firebase on a 500ms debounce so a burst of quick
+  // edits collapses into one write.
+  function scheduleWrite() {
     if (isReadOnly) return;
     pendingWrite = true;
     setStatus('saving');
     if (syncTimer) clearTimeout(syncTimer);
     syncTimer = setTimeout(flushSync, 500);
+  }
+
+  // Every mutation goes through here: snapshot the pre-mutation state for undo,
+  // apply the change, render, and schedule the write.
+  function commit(mutateFn) {
+    var before = clone(state);
+    mutateFn();
+    render();
+    if (isReadOnly) return;
+    undoStack.push(before);
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    redoStack.length = 0;
+    scheduleWrite();
+  }
+
+  function applyHistorySnapshot(snapshot) {
+    state = snapshot;
+    render();
+    renderCategoryOptions();
+    renderCategoryList();
+    scheduleWrite();
+  }
+
+  function undo() {
+    if (isReadOnly || !undoStack.length) return;
+    redoStack.push(clone(state));
+    applyHistorySnapshot(undoStack.pop());
+  }
+
+  function redo() {
+    if (isReadOnly || !redoStack.length) return;
+    undoStack.push(clone(state));
+    applyHistorySnapshot(redoStack.pop());
+  }
+
+  function bindUndoRedo() {
+    document.addEventListener('keydown', function (e) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      var key = (e.key || '').toLowerCase();
+      var isUndo = key === 'z' && !e.shiftKey && !e.altKey;
+      var isRedo = (key === 'z' && e.shiftKey && !e.altKey) || (key === 'y' && !e.shiftKey && !e.altKey);
+      if (!isUndo && !isRedo) return;
+
+      // Let the browser handle Ctrl+Z inside text fields, and don't fire while
+      // a modal (edit / auth / confirm) is open or the board is read-only.
+      var t = e.target;
+      var tag = t && t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+      if (document.querySelector('.modal-backdrop.open')) return;
+      if (isReadOnly) return;
+
+      e.preventDefault();
+      if (isUndo) undo(); else redo();
+    });
   }
 
   function flushSync() {
@@ -1084,6 +1144,7 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     bindImport();
     bindDialog();
     bindAuth();
+    bindUndoRedo();
     bindSidebarToggle();
     bindSidebarBackdrop();
     bindDayTabs();
