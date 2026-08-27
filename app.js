@@ -1,7 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getDatabase, ref, onValue, get, set } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
+import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './firebase-config.js';
 
 (function () {
   'use strict';
@@ -97,7 +97,10 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
   var currentLayout = null;
 
   // Firebase wiring.
+  var dbInstance = null;
   var scheduleRef = null;
+  var scheduleUnsub = null;   // detaches the current onValue(scheduleRef)
+  var activePath = null;      // the RTDB node the board is currently bound to
   var authInstance = null;
   var currentUser = null;
   var stateLoaded = false;    // first onValue() snapshot from the server has arrived
@@ -557,15 +560,80 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     renderCategoryList();
   }
 
-  // One-time, first-run-only seeding. Runs at most once per page load, only
-  // when signed in and connected. Does an explicit get() (single read straight
-  // from the server) and writes DEFAULT_STATE *only* if the node truly does
-  // not exist AND carries no /schedule/_seeded marker. After a successful seed
-  // the marker is set, so this can never fire twice — not even by accident, on
-  // any device. It is NOT driven by onValue(), so it cannot lose a race with
-  // the real data arriving.
+  function pathForUser(user) {
+    var uid = user && user.uid;
+    return (uid && SCHEDULE_PATH_BY_UID[uid]) || DEFAULT_SCHEDULE_PATH;
+  }
+
+  // The single source of truth handler. state is only ever replaced from here;
+  // the first snapshot flips stateLoaded, which is what unblocks commits/writes.
+  function onScheduleSnapshot(snap) {
+    var val = snap.val();
+    var hasData = val && typeof val === 'object';
+
+    if (hasData) {
+      // Don't stomp on edits the local user is still making; the echo of our
+      // own write will re-sync once the debounce has flushed. A snapshot that
+      // lands mid drag/resize is stashed and applied when the gesture ends.
+      if (pendingWrite || syncTimer) {
+        // keep current local state
+      } else if (isInteracting) {
+        pendingRemote = val;
+      } else {
+        applyRemoteState(val);
+      }
+    }
+    // Empty node (hasData === false): keep the empty placeholder on screen.
+    // seedIfEmpty() — not this handler — decides whether to populate it.
+
+    if (!stateLoaded) {
+      stateLoaded = true;
+      refreshConnectionStatus();
+    }
+  }
+
+  // (Re)bind the board to a Realtime Database node. Called on connect and again
+  // whenever the signed-in user changes to one mapped to a different node.
+  // Tears down the previous listener and wipes all load/seed/sync/history state
+  // so nothing from the old node leaks into the new one.
+  function subscribeToPath(path) {
+    if (!dbInstance || path === activePath) return;
+    activePath = path;
+
+    if (scheduleUnsub) { scheduleUnsub(); scheduleUnsub = null; }
+    if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
+    pendingWrite = false;
+    pendingRemote = null;
+    stateLoaded = false;
+    seedChecked = false;
+    clearHistory();
+    state = { categories: clone(DEFAULT_STATE.categories), events: [], nameColors: {} };
+    render();
+    renderCategoryOptions();
+    renderCategoryList();
+
+    scheduleRef = ref(dbInstance, path);
+    refreshConnectionStatus();
+
+    scheduleUnsub = onValue(scheduleRef, onScheduleSnapshot, function (err) {
+      console.error('Ошибка чтения из Firebase', err);
+      setStatus('offline');
+    });
+
+    seedIfEmpty();
+  }
+
+  // One-time, first-run-only seeding — ONLY for the default node. Runs at most
+  // once per subscription, only when signed in and connected. Does an explicit
+  // get() (single read straight from the server) and writes DEFAULT_STATE *only*
+  // if the node truly does not exist AND carries no _seeded marker. After a
+  // successful seed the marker is set, so this can never fire twice — not even
+  // by accident, on any device. It is NOT driven by onValue(), so it cannot
+  // lose a race with the real data arriving. Per-user nodes (schedule-2, …) are
+  // never seeded — they start empty.
   async function seedIfEmpty() {
     if (seedChecked || !scheduleRef || !currentUser || !isConnected) return;
+    if (activePath !== DEFAULT_SCHEDULE_PATH) return;
     seedChecked = true;
     try {
       var snap = await get(scheduleRef);
@@ -584,10 +652,9 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
   }
 
   function connectFirebase() {
-    var db;
     try {
       var app = initializeApp(firebaseConfig);
-      db = getDatabase(app);
+      dbInstance = getDatabase(app);
       authInstance = getAuth(app);
     } catch (e) {
       console.error('Не удалось инициализировать Firebase. Проверьте firebase-config.js', e);
@@ -597,10 +664,12 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
 
     // Firebase persists the session (browserLocalPersistence by default), so
     // this fires with the previously signed-in user on reload without a
-    // re-login prompt.
+    // re-login prompt. Each user is bound to their own node (see pathForUser);
+    // signing out drops back to the default node.
     onAuthStateChanged(authInstance, function (user) {
       currentUser = user || null;
       updateAuthUI();
+      subscribeToPath(pathForUser(currentUser));
       if (currentUser) {
         exitReadOnly();
         seedIfEmpty();
@@ -609,43 +678,15 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
       }
     });
 
-    scheduleRef = ref(db, SCHEDULE_PATH);
-
-    onValue(ref(db, '.info/connected'), function (snap) {
+    onValue(ref(dbInstance, '.info/connected'), function (snap) {
       isConnected = snap.val() === true;
       refreshConnectionStatus();
       if (isConnected) seedIfEmpty();
     });
 
-    // The single source of truth. state is only ever replaced from here; the
-    // first snapshot flips stateLoaded, which is what unblocks commits/writes.
-    onValue(scheduleRef, function (snap) {
-      var val = snap.val();
-      var hasData = val && typeof val === 'object';
-
-      if (hasData) {
-        // Don't stomp on edits the local user is still making; the echo of our
-        // own write will re-sync once the debounce has flushed. A snapshot that
-        // lands mid drag/resize is stashed and applied when the gesture ends.
-        if (pendingWrite || syncTimer) {
-          // keep current local state
-        } else if (isInteracting) {
-          pendingRemote = val;
-        } else {
-          applyRemoteState(val);
-        }
-      }
-      // Empty node (hasData === false): keep the empty placeholder on screen.
-      // seedIfEmpty() — not this handler — decides whether to populate it.
-
-      if (!stateLoaded) {
-        stateLoaded = true;
-        refreshConnectionStatus();
-      }
-    }, function (err) {
-      console.error('Ошибка чтения из Firebase', err);
-      setStatus('offline');
-    });
+    // Bind to the default node right away so visitors see it while auth
+    // resolves; the auth callback re-binds if the signed-in user owns another.
+    subscribeToPath(DEFAULT_SCHEDULE_PATH);
   }
 
   function updateAuthUI() {
