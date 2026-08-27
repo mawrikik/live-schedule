@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Живое расписание</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style id="page-style">
+  :root {
+    --bg: #eef1f5;
+    --surface: #ffffff;
+    --surface-alt: #f5f7fa;
+    --border: #d7dee6;
+    --text: #1c2430;
+    --muted: #67717e;
+    --accent: #33448c;
+    --accent-ink: #ffffff;
+    --good: #2f8f5b;
+    --good-bg: #e6f4ec;
+    --warn: #b3541e;
+    --warn-bg: #f9ece2;
+    --shadow: 0 1px 2px rgba(28,36,48,.06);
+    --seam: #d7dee6;
+    --time-col-width: 68px;
+    font-size: 15px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b;
+      --surface: #191d25;
+      --surface-alt: #1f242e;
+      --border: #2a303c;
+      --text: #e7eaf0;
+      --muted: #99a2b1;
+      --accent: #8393f2;
+      --accent-ink: #12151b;
+      --good: #5fce93;
+      --good-bg: #163326;
+      --warn: #e2984f;
+      --warn-bg: #362316;
+      --shadow: 0 1px 3px rgba(0,0,0,.4);
+      --seam: #2a303c;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #12151b;
+    --surface: #191d25;
+    --surface-alt: #1f242e;
+    --border: #2a303c;
+    --text: #e7eaf0;
+    --muted: #99a2b1;
+    --accent: #8393f2;
+    --accent-ink: #12151b;
+    --good: #5fce93;
+    --good-bg: #163326;
+    --warn: #e2984f;
+    --warn-bg: #362316;
+    --shadow: 0 1px 3px rgba(0,0,0,.4);
+    --seam: #2a303c;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, .day-head { font-family: "Schibsted Grotesk", "IBM Plex Sans", sans-serif; text-wrap: balance; }
+
+  #app-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex: none;
+  }
+  .topbar-title h1 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+  .topbar-title .subtitle { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 500;
+    background: var(--good-bg);
+    color: var(--good);
+    white-space: nowrap;
+  }
+  .status-pill.readonly { background: var(--warn-bg); color: var(--warn); }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  .layout { flex: 1; display: flex; overflow: hidden; position: relative; }
+
+  .sidebar {
+    width: 300px;
+    flex: none;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 18px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    transition: width .2s ease, padding .2s ease;
+  }
+  .layout.sidebar-collapsed .sidebar {
+    width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    border-right: none;
+  }
+
+  .sidebar-toggle {
+    position: absolute;
+    top: 14px;
+    left: 300px;
+    transform: translateX(-50%);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 11px;
+    line-height: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    cursor: pointer;
+    z-index: 10;
+    transition: left .2s ease;
+  }
+  .sidebar-toggle:hover { color: var(--text); }
+  .layout.sidebar-collapsed .sidebar-toggle { left: 0; }
+
+  .sidebar h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin: 20px 0 8px;
+    font-weight: 600;
+  }
+  .sidebar h2:first-child { margin-top: 0; }
+
+  .readonly-notice {
+    background: var(--warn-bg);
+    color: var(--warn);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    margin-bottom: 16px;
+  }
+
+  .event-form, .category-form { display: flex; flex-direction: column; gap: 10px; }
+  .event-form label, .category-form label {
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 12px; color: var(--muted);
+  }
+  .row { display: flex; gap: 10px; }
+  .row label { flex: 1; }
+
+  input[type="text"], input[type="time"], select, textarea {
+    font: inherit;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", sans-serif;
+  }
+  input[type="time"] { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+  textarea { resize: vertical; font-family: inherit; }
+  input:focus, select:focus, textarea:focus, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+
+  .checkbox { flex-direction: row !important; align-items: center; gap: 6px !important; }
+
+  button {
+    font: inherit;
+    cursor: pointer;
+    border-radius: 7px;
+    border: 1px solid transparent;
+    padding: 9px 12px;
+    font-weight: 500;
+  }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-secondary { background: var(--surface); border-color: var(--border); color: var(--text); }
+  .btn-secondary:hover { background: var(--surface-alt); }
+  .btn-danger { background: var(--warn-bg); border-color: transparent; color: var(--warn); }
+  .btn-danger:hover { filter: brightness(1.05); }
+  #btn-clear { width: 100%; margin-top: 22px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  .hint { font-size: 11.5px; line-height: 1.5; color: var(--muted); margin: 0 0 8px; }
+  #import-text { width: 100%; font-family: "IBM Plex Mono", monospace; font-size: 11.5px; }
+  .import-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .import-actions button { flex: 1; }
+  .import-status { font-size: 12px; color: var(--muted); margin: 8px 0 0; line-height: 1.4; }
+  .import-status.error { color: var(--warn); }
+  .import-status.ok { color: var(--good); }
+
+  .category-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  .category-list li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .category-list .swatch { width: 13px; height: 13px; border-radius: 4px; flex: none; }
+  .category-list .style-preview {
+    width: 13px; height: 13px; border-radius: 4px; flex: none;
+    border: 2px solid var(--muted); background: transparent;
+  }
+  .category-list .style-preview.dashed { border-style: dashed; }
+  .category-list .empty-hint { color: var(--muted); font-size: 12px; font-style: italic; }
+  .category-list .cat-type { margin-left: auto; font-size: 11px; color: var(--muted); }
+  .category-list .cat-del { border: none; background: none; color: var(--muted); padding: 0 4px; font-size: 15px; }
+  .category-list .cat-del:hover { color: var(--warn); }
+
+  .grid-wrap { flex: 1; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+  .grid-scroll { flex: 1; overflow: auto; }
+  .schedule-grid { display: inline-block; min-width: 100%; }
+
+  .grid-header {
+    display: grid;
+    grid-template-columns: var(--time-col-width) repeat(7, minmax(148px, 1fr));
+    position: sticky; top: 0; z-index: 5;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .grid-header .corner { border-right: 1px solid var(--border); }
+  .day-head {
+    padding: 11px 6px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 13.5px;
+    border-right: 1px solid var(--border);
+  }
+  .day-head:last-child { border-right: none; }
+
+  .grid-body {
+    display: grid;
+    grid-template-columns: var(--time-col-width) repeat(7, minmax(148px, 1fr));
+    position: relative;
+  }
+  .time-col { position: relative; border-right: 1px solid var(--border); }
+  .time-label {
+    position: absolute; right: 8px; top: 0; padding-top: 2px;
+    font-size: 10px; color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .day-col {
+    position: relative;
+    border-right: 1px solid var(--border);
+    background-repeat: no-repeat;
+  }
+  .day-col:last-child { border-right: none; }
+
+  .event {
+    position: absolute;
+    border-radius: 7px;
+    border-left: 4px solid rgba(0,0,0,.22);
+    padding: 3px 7px;
+    overflow: hidden;
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.3;
+    cursor: grab;
+    box-shadow: var(--shadow);
+    user-select: none;
+  }
+  .event.other-type { border-left-style: dashed; }
+  .event .ev-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .event .ev-time {
+    opacity: .88; font-size: 10.5px;
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .event .resize-handle { position: absolute; left: 0; right: 0; height: 6px; cursor: ns-resize; }
+  .event .resize-handle.top { top: 0; }
+  .event .resize-handle.bottom { bottom: 0; }
+  .event.dragging { opacity: .85; z-index: 20; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+  .event.readonly { cursor: default; }
+
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(15,18,25,.4);
+    align-items: center; justify-content: center; z-index: 50;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 20px;
+    width: 340px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.3);
+    border: 1px solid var(--border);
+  }
+  .modal h2 { margin: 0 0 14px; font-size: 16px; }
+  .modal form { display: flex; flex-direction: column; gap: 10px; }
+  .modal label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .modal-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .modal-actions .spacer { flex: 1; }
+
+  .day-tabs {
+    display: none;
+    gap: 4px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex: none;
+  }
+  .day-tabs button {
+    flex: none;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .day-tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+  .sidebar-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(15,18,25,.4);
+    z-index: 35;
+  }
+  .sidebar-backdrop.open { display: block; }
+
+  /* Below this width the sidebar becomes a slide-over drawer and the grid
+     shows one day at a time (switched via .day-tabs) instead of squeezing
+     all seven columns into an unreadable, horizontally-scrolling table. */
+  @media (max-width: 700px) {
+    :root { --time-col-width: 52px; font-size: 14px; }
+
+    .topbar { padding: 10px 14px; gap: 10px; }
+    .topbar-title h1 { font-size: 17px; }
+    .topbar-title .subtitle { display: none; }
+    .status-pill { padding: 5px 9px; font-size: 11px; }
+
+    .sidebar {
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      width: min(86vw, 320px);
+      z-index: 40;
+      box-shadow: 0 0 28px rgba(0,0,0,.3);
+      transform: translateX(0);
+      transition: transform .25s ease;
+    }
+    .layout.sidebar-collapsed .sidebar {
+      width: min(86vw, 320px);
+      padding: 18px;
+      border-right: 1px solid var(--border);
+      transform: translateX(-100%);
+    }
+    .sidebar-toggle {
+      /* .layout (not the viewport) is the containing block: it already
+         starts below the topbar, so anchoring here — rather than to a
+         fixed viewport offset — avoids overlapping the title. */
+      position: absolute;
+      top: 10px; left: 10px;
+      transform: none;
+    }
+    .layout.sidebar-collapsed .sidebar-toggle { left: 10px; }
+
+    .day-tabs { display: flex; padding-left: 44px; } /* clears the sidebar toggle button */
+
+    .grid-header, .grid-body { grid-template-columns: var(--time-col-width) 1fr; }
+    .day-head.hidden-mobile, .day-col.hidden-mobile { display: none; }
+    .grid-header .day-head:not(.hidden-mobile) { border-right: none; }
+    .grid-body .day-col:not(.hidden-mobile) { border-right: none; }
+    .schedule-grid { min-width: 0; width: 100%; }
+    .time-label { font-size: 11px; }
+
+    .event { font-size: 12.5px; padding: 4px 8px; }
+    .event .resize-handle { height: 12px; }
+    .event .resize-handle.top { top: -3px; }
+    .event .resize-handle.bottom { bottom: -3px; }
+
+    .modal { width: min(92vw, 340px); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="app-shell">
+
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1>Живое расписание</h1>
+      <p class="subtitle">Ссылкой можно поделиться — изменения видят все зрители сразу</p>
+    </div>
+    <div id="status-pill" class="status-pill"><span class="dot"></span><span id="status-text">Синхронизировано</span></div>
+  </header>
+
+  <div class="layout">
+
+    <aside class="sidebar" id="sidebar">
+      <div id="readonly-notice" class="readonly-notice" hidden="">
+        Эта ссылка открыта только для просмотра. Редактировать расписание может владелец.
+      </div>
+
+      <h2>Добавить занятие / дело</h2>
+      <form id="event-form" class="event-form">
+        <label>Название
+          <input type="text" id="f-title" required="" placeholder="Например: Математика">
+        </label>
+        <label>День недели
+          <select id="f-day">
+            <option value="0">Понедельник</option>
+            <option value="1">Вторник</option>
+            <option value="2">Среда</option>
+            <option value="3">Четверг</option>
+            <option value="4">Пятница</option>
+            <option value="5">Суббота</option>
+            <option value="6">Воскресенье</option>
+          </select>
+        </label>
+        <div class="row">
+          <label>Начало
+            <input type="time" id="f-start" value="09:00" step="300" required="">
+          </label>
+          <label>Конец
+            <input type="time" id="f-end" value="10:00" step="300" required="">
+          </label>
+        </div>
+        <label>Категория
+          <select id="f-category"></select>
+        </label>
+        <label>Заметка
+          <textarea id="f-notes" rows="2" placeholder="Необязательно"></textarea>
+        </label>
+        <button type="submit" class="btn-primary">Добавить в расписание</button>
+      </form>
+
+      <h2>Категории</h2>
+      <ul id="category-list" class="category-list"></ul>
+      <form id="category-form" class="category-form">
+        <input type="text" id="c-name" placeholder="Новая категория" required="">
+        <label class="checkbox"><input type="checkbox" id="c-is-class"> это занятие</label>
+        <button type="submit" class="btn-secondary">Добавить категорию</button>
+      </form>
+
+      <h2>Цвета имён</h2>
+      <ul id="name-color-list" class="category-list"></ul>
+
+      <h2>Импорт из Google Таблиц</h2>
+      <p class="hint">
+        В таблице: имена — в первом столбце, дни недели — в первой строке,
+        время — в ячейках («14:00», «14:00-15:30» или просто «14:00»,
+        если занятие длится час). Выделите диапазон в Google Таблицах,
+        скопируйте (Ctrl+C) и вставьте сюда.
+      </p>
+      <textarea id="import-text" rows="6" placeholder="Вставьте скопированные ячейки сюда…"></textarea>
+      <div class="import-actions">
+        <button type="button" id="btn-import-file" class="btn-secondary">Выбрать файл</button>
+        <input type="file" id="import-file" accept=".csv,.tsv,.txt" hidden="">
+        <button type="button" id="btn-import" class="btn-primary">Импортировать</button>
+      </div>
+      <p id="import-status" class="import-status" hidden=""></p>
+
+      <button id="btn-clear" class="btn-danger">Очистить всё расписание</button>
+    </aside>
+
+    <button type="button" id="sidebar-toggle" class="sidebar-toggle" title="Свернуть панель">◀</button>
+    <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+    <main class="grid-wrap">
+      <div class="day-tabs" id="day-tabs"></div>
+      <div class="grid-scroll" id="grid-scroll">
+        <div class="schedule-grid" id="schedule-grid"></div>
+      </div>
+    </main>
+
+  </div>
+</div>
+<div class="modal-backdrop" id="edit-backdrop">
+  <div class="modal">
+    <h2>Редактировать</h2>
+    <form id="edit-form">
+      <label>Название<input type="text" id="e-title" required=""></label>
+      <label>День недели
+        <select id="e-day">
+          <option value="0">Понедельник</option>
+          <option value="1">Вторник</option>
+          <option value="2">Среда</option>
+          <option value="3">Четверг</option>
+          <option value="4">Пятница</option>
+          <option value="5">Суббота</option>
+          <option value="6">Воскресенье</option>
+        </select>
+      </label>
+      <div class="row">
+        <label>Начало<input type="time" id="e-start" step="300" required=""></label>
+        <label>Конец<input type="time" id="e-end" step="300" required=""></label>
+      </div>
+      <label>Категория<select id="e-category"></select></label>
+      <label>Заметка<textarea id="e-notes" rows="2"></textarea></label>
+      <div class="modal-actions">
+        <button type="button" id="e-delete" class="btn-danger">Удалить</button>
+        <div class="spacer"></div>
+        <button type="button" id="e-cancel" class="btn-secondary">Отмена</button>
+        <button type="submit" class="btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="modal-backdrop" id="confirm-backdrop">
+  <div class="modal">
+    <h2 id="confirm-title">Подтверждение</h2>
+    <p id="confirm-message" class="hint" style="margin-bottom: 4px;"></p>
+    <div class="modal-actions">
+      <div class="spacer"></div>
+      <button type="button" id="confirm-cancel" class="btn-secondary">Отмена</button>
+      <button type="button" id="confirm-ok" class="btn-primary">ОК</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
