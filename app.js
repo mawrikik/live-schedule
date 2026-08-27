@@ -120,8 +120,13 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
   }
   function getCategory(id) { return state.categories.find(function (c) { return c.id === id; }) || state.categories[0]; }
 
+  // The nameColors map is keyed by the (trimmed) title, but Realtime Database
+  // keys can't contain . # $ / [ ] or control characters. Names pasted from
+  // Google Sheets routinely have dots or slashes ("А. Иванов", "10.А"), which
+  // would make set() throw and silently abort the whole write. sanitizeName()
+  // strips exactly those characters — the event keeps its own real title.
   function nameKey(title) {
-    return (title || '').trim() || '—';
+    return sanitizeName(title) || '—';
   }
   function getNameColor(title) {
     return (state.nameColors && state.nameColors[nameKey(title)]) || NAME_PALETTE[0];
@@ -190,31 +195,64 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     return { start: clamp(start, DAY_START, DAY_END), end: clamp(end, DAY_START, DAY_END) };
   }
 
-  function splitRow(line) {
-    if (line.indexOf('\t') !== -1) return line.split('\t');
-    var cells = [], cur = '', inQuotes = false;
-    for (var i = 0; i < line.length; i++) {
-      var ch = line[i];
-      if (ch === '"') { inQuotes = !inQuotes; continue; }
-      if (ch === ',' && !inQuotes) { cells.push(cur); cur = ''; continue; }
-      cur += ch;
+  // Full TSV/CSV tokenizer. Google Sheets copies a range as TAB-separated
+  // values and QUOTES any cell that contains a tab, a newline or a quote
+  // ("" escapes a literal quote) — so a multi-line cell must not be split on
+  // raw "\n". Splitting the text into lines first (the old approach) tore
+  // those rows apart and fed the debris — stray quotes, half-cells, embedded
+  // carriage returns — into event titles, which then broke the Firebase write.
+  function parseDelimited(text) {
+    var delim = text.indexOf('\t') !== -1 ? '\t' : ',';
+    var rows = [], row = [], field = '', inQuotes = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; }
+          else inQuotes = false;
+        } else { field += ch; }
+        continue;
+      }
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === delim) { row.push(field); field = ''; }
+      else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else if (ch === '\r') {
+        // lone \r ends a row too; \r\n is one break, not two
+        if (text[i + 1] !== '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      }
+      else { field += ch; }
     }
-    cells.push(cur);
-    return cells;
+    row.push(field);
+    rows.push(row);
+    return rows;
+  }
+
+  // Reduce a title to a string that is safe as a Realtime Database KEY: RTDB
+  // rejects . # $ / [ ] and control chars in keys, and nameColors is keyed by
+  // title. Names pasted from Google Sheets often carry a dot ("А. Иванов",
+  // "10.А") — without this, set() throws and the whole write is aborted, so
+  // the pasted rows vanish on the next reload. The event's own title is left
+  // untouched; only its palette key goes through here.
+  function sanitizeName(s) {
+    return (s || '').replace(/[.#$\/[\]\x00-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   function parseImportGrid(text) {
-    var lines = text.replace(/\r\n/g, '\n').split('\n').filter(function (l) { return l.trim() !== ''; });
-    if (lines.length < 2) return { events: [], total: 0, skipped: 0 };
+    var rows = parseDelimited(text).filter(function (r) {
+      return r.some(function (c) { return c.trim() !== ''; });
+    });
+    if (rows.length < 2) return { events: [], total: 0, skipped: 0 };
 
-    var header = splitRow(lines[0]);
+    var header = rows[0];
     var dayForColumn = header.map(matchDayName);
     var defaultCategoryId = (state.categories.find(function (c) { return c.isClass; }) || state.categories[0]).id;
 
     var events = [], total = 0, skipped = 0;
-    for (var r = 1; r < lines.length; r++) {
-      var row = splitRow(lines[r]);
-      var name = (row[0] || '').trim();
+    for (var r = 1; r < rows.length; r++) {
+      var row = rows[r];
+      // Keep the real name for display (dots and all); nameKey() handles the
+      // Firebase-key side. Only control chars are unconditionally unsafe.
+      var name = (row[0] || '').replace(/[\x00-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim();
       if (!name) continue;
       for (var c = 1; c < row.length; c++) {
         var day = dayForColumn[c];
@@ -454,7 +492,19 @@ import { firebaseConfig, SCHEDULE_PATH } from './firebase-config.js';
     // rules reject anyone else), and the real data has loaded (so we can't
     // push the empty placeholder over it).
     if (!scheduleRef || !currentUser || !stateLoaded) { pendingWrite = false; refreshConnectionStatus(); return; }
-    set(scheduleRef, clone(state)).then(function () {
+    var writePromise;
+    try {
+      // set() validates keys/values synchronously and THROWS (not rejects) on
+      // bad data, so this needs its own try/catch — .catch() below wouldn't see it.
+      writePromise = set(scheduleRef, clone(state));
+    } catch (err) {
+      console.error('Не удалось записать в Firebase', err);
+      pendingWrite = false;
+      refreshConnectionStatus();
+      showDialog('Не удалось сохранить изменения. Попробуйте ещё раз.', false);
+      return;
+    }
+    writePromise.then(function () {
       pendingWrite = false;
       refreshConnectionStatus();
     }).catch(function (err) {
