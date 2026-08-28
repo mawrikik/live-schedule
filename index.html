@@ -430,19 +430,47 @@
   .matrix-table thead th.mx-name-h { z-index: 3; }
   .matrix-table tbody tr:nth-child(even) th.mx-name,
   .matrix-table tbody tr:nth-child(even) td { background: var(--surface-alt); }
+  .matrix-table td.mx-day { min-width: 96px; }
+
+  /* Ячейку можно редактировать «как в Google Таблицах»: клик открывает
+     инлайн-поле ввода (см. swapForInput в app.js). */
+  .matrix-table td.mx-day.editable, .matrix-table th.mx-name.editable { cursor: text; }
+  .matrix-table td.mx-day.editable:hover, .matrix-table th.mx-name.editable:hover { outline: 1px solid var(--accent); outline-offset: -1px; }
+
   .mx-dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 8px; vertical-align: middle; flex: none; }
+  .mx-name-text { vertical-align: middle; }
+
+  .mx-entry { display: inline-flex; align-items: baseline; gap: 5px; }
+  .mx-entry + .mx-entry { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--border); }
   .mx-time {
-    display: inline-block;
     font-family: "IBM Plex Mono", monospace;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-    cursor: pointer;
   }
-  .mx-time:hover { text-decoration: underline; }
-  .mx-time + .mx-time { margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--border); }
-  .mx-time.other-type { color: var(--warn); font-style: italic; }
-  .mx-time.cancelled { opacity: .55; text-decoration: line-through; }
+  .mx-note { color: var(--muted); font-size: 11px; font-style: italic; white-space: normal; text-align: left; }
+  .mx-entry.other-type .mx-time { color: var(--warn); font-style: italic; }
+  .mx-entry.cancelled { opacity: .55; }
+  .mx-entry.cancelled .mx-time { text-decoration: line-through; }
+
+  .mx-input {
+    width: 100%;
+    min-width: 84px;
+    font: inherit;
+    padding: 3px 5px;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+  }
+  .matrix-table th.mx-name .mx-input { min-width: 130px; }
+  .mx-entry .mx-input { min-width: 124px; }
+  .mx-entry.mx-editing { display: block; }
+  .mx-editing { padding: 3px !important; }
+
   .mx-empty { color: var(--muted); font-style: italic; padding: 22px; text-align: center; }
+
+  .mx-hint { display: none; align-self: center; margin-left: auto; font-size: 11.5px; color: var(--muted); }
+  .grid-wrap.matrix-view .mx-hint { display: block; }
 
   .sidebar-backdrop {
     display: none;
@@ -506,6 +534,7 @@
     .event .resize-handle.bottom { bottom: -3px; }
 
     .matrix-table { min-width: 560px; }
+    .grid-wrap.matrix-view .mx-hint { display: none; }
 
     .modal { width: min(92vw, 340px); }
   }
@@ -606,6 +635,7 @@
       <div class="view-tabs" id="view-tabs">
         <button type="button" data-view="timeline" class="active">Лента времени</button>
         <button type="button" data-view="matrix">Таблица</button>
+        <span class="mx-hint">Кликните на ячейку, чтобы изменить время или вписать комментарий к занятию</span>
       </div>
       <div class="day-tabs" id="day-tabs"></div>
       <div class="grid-scroll" id="grid-scroll">

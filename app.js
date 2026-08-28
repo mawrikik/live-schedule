@@ -875,6 +875,9 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   // Second format: rows are names/task titles, columns are the seven weekdays,
   // each cell holds the time(s) for that name on that day. Same events as the
   // timeline — this only re-presents state.events, it is not a separate table.
+  // Cells are edited in place (Google-Sheets style): a click swaps the cell for
+  // an <input>; on commit the text is parsed back into state.events, so any
+  // change is instantly visible in the timeline view and synced to Firebase.
   function renderMatrix() {
     var table = document.getElementById('matrix-table');
     if (!table) return;
@@ -896,22 +899,162 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       return;
     }
 
+    var editable = !isReadOnly;
     var body = order.map(function (key) {
       var row = rows[key];
-      var cells = row.days.map(function (list) {
-        if (!list.length) return '<td></td>';
+      var cells = row.days.map(function (list, day) {
+        var inner = '';
         list.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
-        return '<td>' + list.map(function (ev) {
+        inner = list.map(function (ev) {
           var cat = getCategory(ev.categoryId);
-          var cls = 'mx-time' + (cat.isClass ? '' : ' other-type') + (ev.cancelled ? ' cancelled' : '');
-          return '<span class="' + cls + '" data-id="' + ev.id + '">' + escapeHtml(formatCellTime(ev)) + '</span>';
-        }).join('') + '</td>';
+          var cls = 'mx-entry' + (cat.isClass ? '' : ' other-type') + (ev.cancelled ? ' cancelled' : '');
+          var note = ev.notes ? '<span class="mx-note">' + escapeHtml(ev.notes) + '</span>' : '';
+          return '<span class="' + cls + '" data-id="' + ev.id + '">' +
+            '<span class="mx-time">' + escapeHtml(formatCellTime(ev)) + '</span>' + note + '</span>';
+        }).join('');
+        return '<td class="mx-day' + (editable ? ' editable' : '') + '" data-day="' + day + '">' + inner + '</td>';
       }).join('');
-      return '<tr><th class="mx-name"><span class="mx-dot" style="background:' + getNameColor(row.name) + '"></span>' +
-        escapeHtml(row.name) + '</th>' + cells + '</tr>';
+      return '<tr data-name="' + escapeHtml(row.name) + '">' +
+        '<th class="mx-name' + (editable ? ' editable' : '') + '">' +
+        '<span class="mx-dot" style="background:' + getNameColor(row.name) + '"></span>' +
+        '<span class="mx-name-text">' + escapeHtml(row.name) + '</span></th>' + cells + '</tr>';
     }).join('');
 
     table.innerHTML = head + '<tbody>' + body + '</tbody>';
+  }
+
+  // Pull a leading time (single "9" / "9:00" or a range "9-10:30") off the front
+  // of a cell string; whatever is left over is the event's comment. A string
+  // with no leading time is treated as pure comment (the time stays put).
+  function hmValid(h, m) {
+    h = Number(h); m = (m == null || m === '') ? 0 : Number(m);
+    if (isNaN(h) || isNaN(m) || m > 59 || h > 24) return false;
+    if (h === 24 && m !== 0) return false;
+    return true;
+  }
+  function hmToMin(h, m) { return Number(h) * 60 + ((m == null || m === '') ? 0 : Number(m)); }
+
+  function parseTimeAndNote(str) {
+    var s = (str || '').trim();
+    if (!s) return { start: null, end: null, note: '' };
+
+    var range = s.match(/^(\d{1,2})(?::(\d{2}))?\s*[-–—]\s*(\d{1,2})(?::(\d{2}))?(?:\s+([\s\S]*))?$/);
+    if (range && hmValid(range[1], range[2]) && hmValid(range[3], range[4])) {
+      var st = hmToMin(range[1], range[2]), en = hmToMin(range[3], range[4]);
+      if (en > st) return { start: st, end: en, note: (range[5] || '').trim() };
+    }
+
+    var single = s.match(/^(\d{1,2})(?::(\d{2}))?(?:\s+([\s\S]*))?$/);
+    if (single && hmValid(single[1], single[2])) {
+      return { start: hmToMin(single[1], single[2]), end: null, note: (single[3] || '').trim() };
+    }
+
+    return { start: null, end: null, note: s };
+  }
+
+  // Swap `target` for a text input seeded with `initialValue`; on Enter or blur
+  // run onCommit(value), on Escape discard. Either way renderMatrix() rebuilds
+  // the affected cell from state afterwards.
+  function swapForInput(target, initialValue, onCommit) {
+    if (isReadOnly || !stateLoaded || target.querySelector('input.mx-input')) return;
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'mx-input';
+    input.value = initialValue;
+    target.classList.add('mx-editing');
+    target.innerHTML = '';
+    target.appendChild(input);
+    input.focus();
+    input.select();
+    beginInteraction();
+
+    var done = false;
+    function finish(save) {
+      if (done) return;
+      done = true;
+      input.removeEventListener('blur', onBlur);
+      var val = input.value;
+      if (save) {
+        try { onCommit(val); } catch (err) { console.error('Не удалось сохранить ячейку', err); }
+      }
+      endInteraction();
+      renderMatrix();
+    }
+    function onBlur() { finish(true); }
+    input.addEventListener('blur', onBlur);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+  }
+
+  function applyTimeCellEdit(ev, value) {
+    var s = (value || '').trim();
+    if (!s) {
+      commit(function () { state.events = state.events.filter(function (x) { return x.id !== ev.id; }); });
+      return;
+    }
+    var parsed = parseTimeAndNote(s);
+    commit(function () {
+      if (parsed.start != null) {
+        var start = clamp(parsed.start, DAY_START, DAY_END - MIN_DURATION);
+        var end;
+        if (parsed.end != null) {
+          end = clamp(parsed.end, start + MIN_DURATION, DAY_END);
+        } else {
+          var dur = ev.end - ev.start;
+          end = clamp(start + (dur > 0 ? dur : 60), start + MIN_DURATION, DAY_END);
+        }
+        ev.start = start;
+        ev.end = end;
+      }
+      ev.notes = parsed.note;
+    });
+  }
+
+  function editMatrixEntry(entryEl) {
+    var ev = state.events.find(function (x) { return x.id === entryEl.dataset.id; });
+    if (!ev) return;
+    var initial = formatCellTime(ev) + (ev.notes ? ' ' + ev.notes : '');
+    swapForInput(entryEl, initial, function (value) { applyTimeCellEdit(ev, value); });
+  }
+
+  function addMatrixEntry(cellEl) {
+    var tr = cellEl.closest('tr');
+    var name = tr && tr.dataset.name;
+    var day = Number(cellEl.dataset.day);
+    if (!name) return;
+    swapForInput(cellEl, '', function (value) {
+      var parsed = parseTimeAndNote(value);
+      if (parsed.start == null) return; // no usable time → nothing to create
+      var start = clamp(parsed.start, DAY_START, DAY_END - MIN_DURATION);
+      var end = parsed.end != null
+        ? clamp(parsed.end, start + MIN_DURATION, DAY_END)
+        : clamp(start + 60, start + MIN_DURATION, DAY_END);
+      var categoryId = (state.categories.find(function (c) { return c.isClass; }) || state.categories[0]).id;
+      commit(function () {
+        ensureNameColor(name);
+        state.events.push({ id: uid(), title: name, day: day, start: start, end: end, categoryId: categoryId, notes: parsed.note });
+      });
+    });
+  }
+
+  function editMatrixName(cellEl) {
+    var tr = cellEl.closest('tr');
+    var oldName = tr && tr.dataset.name;
+    if (!oldName) return;
+    var textEl = cellEl.querySelector('.mx-name-text') || cellEl;
+    swapForInput(textEl, oldName, function (value) {
+      var next = value.trim();
+      if (!next || next === oldName) return;
+      var oldKey = nameKey(oldName);
+      var oldColor = getNameColor(oldName);
+      commit(function () {
+        state.events.forEach(function (ev) { if (nameKey(ev.title) === oldKey) ev.title = next; });
+        if (!state.nameColors) state.nameColors = {};
+        if (!state.nameColors[nameKey(next)]) state.nameColors[nameKey(next)] = oldColor;
+      });
+    });
   }
 
   function setView(view) {
@@ -927,15 +1070,24 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
 
   function bindViewTabs() {
     var tabs = document.getElementById('view-tabs');
-    if (!tabs) return;
-    tabs.addEventListener('click', function (e) {
+    if (tabs) tabs.addEventListener('click', function (e) {
       var btn = e.target.closest('button[data-view]');
       if (btn) setView(btn.dataset.view);
     });
+
     var table = document.getElementById('matrix-table');
-    if (table) table.addEventListener('click', function (e) {
-      var span = e.target.closest('.mx-time[data-id]');
-      if (span) openEditModal(span.dataset.id);
+    if (!table) return;
+    table.addEventListener('click', function (e) {
+      if (isReadOnly || e.target.closest('input.mx-input')) return;
+
+      var nameCell = e.target.closest('th.mx-name');
+      if (nameCell) { editMatrixName(nameCell); return; }
+
+      var entry = e.target.closest('.mx-entry');
+      if (entry) { editMatrixEntry(entry); return; }
+
+      var dayCell = e.target.closest('td.mx-day');
+      if (dayCell && !dayCell.querySelector('.mx-entry')) { addMatrixEntry(dayCell); return; }
     });
   }
 
