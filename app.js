@@ -968,7 +968,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   function buildEventEl(ev, col, totalCols) {
     var cat = getCategory(ev.categoryId);
     var el = document.createElement('div');
-    el.className = 'event' + (cat.isClass ? '' : ' other-type') + (isReadOnly ? ' readonly' : '');
+    el.className = 'event' + (cat.isClass ? '' : ' other-type') + (ev.cancelled ? ' cancelled' : '') + (isReadOnly ? ' readonly' : '');
     el.dataset.id = ev.id;
     positionEventEl(el, ev, col, totalCols, currentLayout);
     el.style.background = getNameColor(ev.title);
@@ -1221,6 +1221,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
         ev.end = clamp(end, DAY_START, DAY_END);
         ev.categoryId = document.getElementById('e-category').value;
         ev.notes = document.getElementById('e-notes').value.trim();
+        ev.cancelled = document.getElementById('e-cancelled').checked;
       });
       closeEditModal();
     });
@@ -1248,6 +1249,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     document.getElementById('e-end').value = formatTime(ev.end);
     document.getElementById('e-category').value = ev.categoryId;
     document.getElementById('e-notes').value = ev.notes || '';
+    document.getElementById('e-cancelled').checked = !!ev.cancelled;
     document.getElementById('edit-backdrop').classList.add('open');
     document.getElementById('edit-form').querySelectorAll('input,select,textarea,button').forEach(function (el) { el.disabled = isReadOnly; });
     document.getElementById('e-cancel').disabled = false;

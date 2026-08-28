@@ -230,7 +230,11 @@
     width: 13px; height: 13px; border-radius: 4px; flex: none;
     border: 2px solid var(--muted); background: transparent;
   }
-  .category-list .style-preview.dashed { border-style: dashed; }
+  .category-list .style-preview.dashed {
+    border-style: dashed;
+    border-radius: 6px;
+    background: repeating-linear-gradient(45deg, var(--muted) 0 2px, transparent 2px 4px);
+  }
   .category-list .empty-hint { color: var(--muted); font-size: 12px; font-style: italic; }
   .category-list .cat-type { margin-left: auto; font-size: 11px; color: var(--muted); }
   .category-list .cat-del { border: none; background: none; color: var(--muted); padding: 0 4px; font-size: 15px; }
@@ -290,7 +294,34 @@
     box-shadow: var(--shadow);
     user-select: none;
   }
-  .event.other-type { border-left-style: dashed; }
+  /* Дела (не занятия) выглядят подчёркнуто иначе, чем занятия: пунктирная
+     окаёмка по всему периметру, широкая пунктирная левая грань, скруглённее
+     углы и лёгкая диагональная штриховка поверх цвета имени. */
+  .event.other-type {
+    border: 2px dashed rgba(255,255,255,.85);
+    border-left-width: 6px;
+    border-radius: 11px;
+  }
+  .event.other-type::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(45deg, rgba(255,255,255,.16) 0 5px, transparent 5px 11px);
+    pointer-events: none;
+  }
+
+  /* Отменённое занятие/дело: приглушено и перечёркнуто — и текст, и вся ячейка. */
+  .event.cancelled { opacity: .5; }
+  .event.cancelled .ev-title, .event.cancelled .ev-time { text-decoration: line-through; }
+  .event.cancelled::after {
+    content: "";
+    position: absolute;
+    left: -6px; right: -6px; top: 50%;
+    border-top: 2px solid rgba(255,255,255,.92);
+    transform: rotate(-5deg);
+    pointer-events: none;
+  }
+
   .event .ev-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .event .ev-time {
     opacity: .88; font-size: 10.5px;
@@ -530,6 +561,7 @@
       </div>
       <label>Категория<select id="e-category"></select></label>
       <label>Заметка<textarea id="e-notes" rows="2"></textarea></label>
+      <label class="checkbox"><input type="checkbox" id="e-cancelled"> Отменено (зачеркнуть в расписании)</label>
       <div class="modal-actions">
         <button type="button" id="e-delete" class="btn-danger">Удалить</button>
         <div class="spacer"></div>
