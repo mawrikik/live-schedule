@@ -375,6 +375,75 @@
   }
   .day-tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
+  /* Переключатель форматов расписания (лента времени / таблица). */
+  .view-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex: none;
+  }
+  .view-tabs button {
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .view-tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+  /* Второй формат: строки — имена/названия дел, столбцы — дни недели,
+     в ячейках — время (только начало, если занятие длится ровно час,
+     иначе «начало-конец»). Те же данные, что и в ленте времени. */
+  .matrix-scroll { display: none; flex: 1; overflow: auto; }
+  .grid-wrap.matrix-view .grid-scroll { display: none; }
+  .grid-wrap.matrix-view .day-tabs { display: none !important; }
+  .grid-wrap.matrix-view .matrix-scroll { display: block; }
+
+  .matrix-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; }
+  .matrix-table th, .matrix-table td {
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: center;
+    vertical-align: middle;
+  }
+  .matrix-table thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    font-family: "Schibsted Grotesk", "IBM Plex Sans", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .matrix-table th.mx-name, .matrix-table th.mx-name-h {
+    position: sticky; left: 0; z-index: 1;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .matrix-table thead th.mx-name-h { z-index: 3; }
+  .matrix-table tbody tr:nth-child(even) th.mx-name,
+  .matrix-table tbody tr:nth-child(even) td { background: var(--surface-alt); }
+  .mx-dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 8px; vertical-align: middle; flex: none; }
+  .mx-time {
+    display: inline-block;
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .mx-time:hover { text-decoration: underline; }
+  .mx-time + .mx-time { margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--border); }
+  .mx-time.other-type { color: var(--warn); font-style: italic; }
+  .mx-time.cancelled { opacity: .55; text-decoration: line-through; }
+  .mx-empty { color: var(--muted); font-style: italic; padding: 22px; text-align: center; }
+
   .sidebar-backdrop {
     display: none;
     position: fixed; inset: 0;
@@ -422,6 +491,7 @@
     .layout.sidebar-collapsed .sidebar-toggle { left: 10px; }
 
     .day-tabs { display: flex; padding-left: 44px; } /* clears the sidebar toggle button */
+    .view-tabs { padding-left: 44px; } /* clears the sidebar toggle button */
 
     .grid-header, .grid-body { grid-template-columns: var(--time-col-width) 1fr; }
     .day-head.hidden-mobile, .day-col.hidden-mobile { display: none; }
@@ -434,6 +504,8 @@
     .event .resize-handle { height: 12px; }
     .event .resize-handle.top { top: -3px; }
     .event .resize-handle.bottom { bottom: -3px; }
+
+    .matrix-table { min-width: 560px; }
 
     .modal { width: min(92vw, 340px); }
   }
@@ -530,10 +602,17 @@
     <button type="button" id="sidebar-toggle" class="sidebar-toggle" title="Свернуть панель">◀</button>
     <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
 
-    <main class="grid-wrap">
+    <main class="grid-wrap" id="grid-wrap">
+      <div class="view-tabs" id="view-tabs">
+        <button type="button" data-view="timeline" class="active">Лента времени</button>
+        <button type="button" data-view="matrix">Таблица</button>
+      </div>
       <div class="day-tabs" id="day-tabs"></div>
       <div class="grid-scroll" id="grid-scroll">
         <div class="schedule-grid" id="schedule-grid"></div>
+      </div>
+      <div class="matrix-scroll" id="matrix-scroll">
+        <table class="matrix-table" id="matrix-table"></table>
       </div>
     </main>
 

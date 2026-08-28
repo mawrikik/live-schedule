@@ -91,6 +91,9 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   // this is what prevents DEFAULT_STATE from ever overwriting real data.
   var state = { categories: clone(DEFAULT_STATE.categories), events: [], nameColors: {} };
   var editingId = null;
+  // Which layout the board shows: 'timeline' (the proportional day columns)
+  // or 'matrix' (a days×names table with just the times in the cells).
+  var currentView = 'timeline';
   // Starts read-only: editing unlocks only once Firebase Auth reports a
   // signed-in user (see onAuthStateChanged in connectFirebase).
   var isReadOnly = true;
@@ -122,6 +125,14 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
   }
   function getCategory(id) { return state.categories.find(function (c) { return c.id === id; }) || state.categories[0]; }
+
+  // Time shown in a matrix cell: only the start if the event lasts exactly one
+  // hour, otherwise "start-end" (e.g. "12:00-13:30").
+  function formatCellTime(ev) {
+    return (ev.end - ev.start === 60)
+      ? formatTime(ev.start)
+      : formatTime(ev.start) + '-' + formatTime(ev.end);
+  }
 
   // The nameColors map is keyed by the (trimmed) title, but Realtime Database
   // keys can't contain . # $ / [ ] or control characters. Names pasted from
@@ -858,6 +869,74 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     renderEvents();
     renderNameColorList();
     renderDayTabs();
+    renderMatrix();
+  }
+
+  // Second format: rows are names/task titles, columns are the seven weekdays,
+  // each cell holds the time(s) for that name on that day. Same events as the
+  // timeline — this only re-presents state.events, it is not a separate table.
+  function renderMatrix() {
+    var table = document.getElementById('matrix-table');
+    if (!table) return;
+
+    var rows = {}, order = [];
+    state.events.forEach(function (ev) {
+      var key = nameKey(ev.title);
+      if (!rows[key]) { rows[key] = { name: ev.title, days: [[], [], [], [], [], [], []] }; order.push(key); }
+      rows[key].days[ev.day].push(ev);
+    });
+    order.sort(function (a, b) { return rows[a].name.localeCompare(rows[b].name, 'ru'); });
+
+    var head = '<thead><tr><th class="mx-name-h">Имя / дело</th>' +
+      DAY_NAMES.map(function (n) { return '<th>' + escapeHtml(n) + '</th>'; }).join('') +
+      '</tr></thead>';
+
+    if (!order.length) {
+      table.innerHTML = head + '<tbody><tr><td class="mx-empty" colspan="8">Пока нет занятий</td></tr></tbody>';
+      return;
+    }
+
+    var body = order.map(function (key) {
+      var row = rows[key];
+      var cells = row.days.map(function (list) {
+        if (!list.length) return '<td></td>';
+        list.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
+        return '<td>' + list.map(function (ev) {
+          var cat = getCategory(ev.categoryId);
+          var cls = 'mx-time' + (cat.isClass ? '' : ' other-type') + (ev.cancelled ? ' cancelled' : '');
+          return '<span class="' + cls + '" data-id="' + ev.id + '">' + escapeHtml(formatCellTime(ev)) + '</span>';
+        }).join('') + '</td>';
+      }).join('');
+      return '<tr><th class="mx-name"><span class="mx-dot" style="background:' + getNameColor(row.name) + '"></span>' +
+        escapeHtml(row.name) + '</th>' + cells + '</tr>';
+    }).join('');
+
+    table.innerHTML = head + '<tbody>' + body + '</tbody>';
+  }
+
+  function setView(view) {
+    currentView = view === 'matrix' ? 'matrix' : 'timeline';
+    var wrap = document.getElementById('grid-wrap');
+    if (wrap) wrap.classList.toggle('matrix-view', currentView === 'matrix');
+    var tabs = document.getElementById('view-tabs');
+    if (tabs) tabs.querySelectorAll('button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.view === currentView);
+    });
+    render();
+  }
+
+  function bindViewTabs() {
+    var tabs = document.getElementById('view-tabs');
+    if (!tabs) return;
+    tabs.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-view]');
+      if (btn) setView(btn.dataset.view);
+    });
+    var table = document.getElementById('matrix-table');
+    if (table) table.addEventListener('click', function (e) {
+      var span = e.target.closest('.mx-time[data-id]');
+      if (span) openEditModal(span.dataset.id);
+    });
   }
 
   function rebuildSkeleton(layout) {
@@ -1315,6 +1394,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     bindSidebarToggle();
     bindSidebarBackdrop();
     bindDayTabs();
+    bindViewTabs();
 
     // Locked until Firebase Auth reports a signed-in user.
     updateAuthUI();
