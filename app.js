@@ -171,6 +171,29 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     return color;
   }
 
+  // <input type="color"> only accepts #rrggbb — coerce shorthand/blank/palette
+  // values to that shape so the swatch shows the real colour when opened.
+  function toHex6(color) {
+    var s = String(color || '').trim();
+    var m3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(s);
+    if (m3) return ('#' + m3[1] + m3[1] + m3[2] + m3[2] + m3[3] + m3[3]).toLowerCase();
+    return /^#[0-9a-f]{6}$/i.test(s) ? s.toLowerCase() : NAME_PALETTE[0];
+  }
+
+  // Reassign the colour of an already-coloured name (and every event/row that
+  // uses it). No-ops in read-only mode, on a bad value, or when unchanged.
+  function setNameColor(title, color) {
+    if (isReadOnly || !stateLoaded) return;
+    var next = toHex6(color);
+    if (!/^#[0-9a-f]{6}$/i.test(next)) return;
+    if (toHex6(getNameColor(title)) === next) return;
+    var key = nameKey(title);
+    commit(function () {
+      if (!state.nameColors) state.nameColors = {};
+      state.nameColors[key] = next;
+    });
+  }
+
   function escapeHtml(str) {
     return str.replace(/[&<>"']/g, function (ch) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
@@ -978,9 +1001,12 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
         }).join('');
         return '<td class="mx-day' + (editable ? ' editable' : '') + '" data-day="' + day + '">' + inner + '</td>';
       }).join('');
+      var dot = editable
+        ? '<input type="color" class="mx-color" value="' + toHex6(getNameColor(row.name)) +
+          '" title="Изменить цвет">'
+        : '<span class="mx-dot" style="background:' + getNameColor(row.name) + '"></span>';
       return '<tr data-name="' + escapeHtml(row.name) + '">' +
-        '<th class="mx-name' + (editable ? ' editable' : '') + '">' +
-        '<span class="mx-dot" style="background:' + getNameColor(row.name) + '"></span>' +
+        '<th class="mx-name' + (editable ? ' editable' : '') + '">' + dot +
         '<span class="mx-name-text">' + escapeHtml(row.name) + '</span></th>' + cells + '</tr>';
     }).join('');
 
@@ -1142,8 +1168,17 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
 
     var table = document.getElementById('matrix-table');
     if (!table) return;
+    table.addEventListener('change', function (e) {
+      var picker = e.target.closest('input.mx-color');
+      if (!picker || isReadOnly) return;
+      var tr = picker.closest('tr');
+      if (tr && tr.dataset.name) setNameColor(tr.dataset.name, picker.value);
+    });
+
     table.addEventListener('click', function (e) {
       if (isReadOnly || e.target.closest('input.mx-input')) return;
+      // Клик по кружку-цвету открывает системный выбор цвета, а не редактор имени.
+      if (e.target.closest('input.mx-color')) return;
 
       var nameCell = e.target.closest('th.mx-name');
       if (nameCell) { editMatrixName(nameCell); return; }
@@ -1453,9 +1488,21 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     list.innerHTML = '';
     names.forEach(function (name) {
       var li = document.createElement('li');
-      var swatch = document.createElement('span'); swatch.className = 'swatch'; swatch.style.background = getNameColor(name);
       var label = document.createElement('span'); label.textContent = name;
-      li.append(swatch, label);
+      if (isReadOnly) {
+        var swatch = document.createElement('span');
+        swatch.className = 'swatch';
+        swatch.style.background = getNameColor(name);
+        li.append(swatch, label);
+      } else {
+        var picker = document.createElement('input');
+        picker.type = 'color';
+        picker.className = 'swatch-input';
+        picker.value = toHex6(getNameColor(name));
+        picker.title = 'Изменить цвет «' + name + '»';
+        picker.addEventListener('change', function () { setNameColor(name, picker.value); });
+        li.append(picker, label);
+      }
       list.appendChild(li);
     });
     if (!names.length) {
@@ -1547,6 +1594,11 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       commit(function () {
         ev.title = document.getElementById('e-title').value.trim() || ev.title;
         ensureNameColor(ev.title);
+        var pickedColor = toHex6(document.getElementById('e-color').value);
+        if (/^#[0-9a-f]{6}$/i.test(pickedColor)) {
+          if (!state.nameColors) state.nameColors = {};
+          state.nameColors[nameKey(ev.title)] = pickedColor;
+        }
         ev.day = Number(document.getElementById('e-day').value);
         ev.start = clamp(start, DAY_START, DAY_END);
         ev.end = clamp(end, DAY_START, DAY_END);
@@ -1579,6 +1631,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     document.getElementById('e-start').value = formatTime(ev.start);
     document.getElementById('e-end').value = formatTime(ev.end);
     document.getElementById('e-category').value = ev.categoryId;
+    document.getElementById('e-color').value = toHex6(getNameColor(ev.title));
     document.getElementById('e-notes').value = ev.notes || '';
     document.getElementById('e-cancelled').checked = !!ev.cancelled;
     document.getElementById('edit-backdrop').classList.add('open');

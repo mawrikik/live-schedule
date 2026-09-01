@@ -226,6 +226,14 @@
   .category-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
   .category-list li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
   .category-list .swatch { width: 13px; height: 13px; border-radius: 4px; flex: none; }
+  .category-list .swatch-input {
+    width: 16px; height: 16px; flex: none;
+    padding: 0; border: 1px solid var(--border); border-radius: 4px;
+    background: none; cursor: pointer;
+  }
+  .category-list .swatch-input::-webkit-color-swatch-wrapper { padding: 0; }
+  .category-list .swatch-input::-webkit-color-swatch { border: none; border-radius: 3px; }
+  .category-list .swatch-input::-moz-color-swatch { border: none; border-radius: 3px; }
   .category-list .style-preview {
     width: 13px; height: 13px; border-radius: 4px; flex: none;
     border: 2px solid var(--muted); background: transparent;
@@ -464,6 +472,15 @@
   .matrix-table td.mx-day.editable:hover, .matrix-table th.mx-name.editable:hover { outline: 1px solid var(--accent); outline-offset: -1px; }
 
   .mx-dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 8px; vertical-align: middle; flex: none; }
+  .mx-color {
+    width: 15px; height: 15px; flex: none;
+    padding: 0; margin-right: 8px; vertical-align: middle;
+    border: 1px solid var(--border); border-radius: 3px;
+    background: none; cursor: pointer;
+  }
+  .mx-color::-webkit-color-swatch-wrapper { padding: 0; }
+  .mx-color::-webkit-color-swatch { border: none; border-radius: 2px; }
+  .mx-color::-moz-color-swatch { border: none; border-radius: 2px; }
   .mx-name-text { vertical-align: middle; }
 
   .mx-entry { display: inline-flex; align-items: baseline; gap: 5px; }
@@ -715,6 +732,10 @@
         <label>Конец<input type="time" id="e-end" step="300" required=""></label>
       </div>
       <label>Категория<select id="e-category"></select></label>
+      <label>Цвет
+        <input type="color" id="e-color">
+        <span class="hint" style="margin:0">Применяется ко всем занятиям с этим названием</span>
+      </label>
       <label>Заметка<textarea id="e-notes" rows="2"></textarea></label>
       <label class="checkbox"><input type="checkbox" id="e-cancelled"> Отменено (бледное в расписании)</label>
       <div class="modal-actions">
