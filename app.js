@@ -627,28 +627,34 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     seedIfEmpty();
   }
 
-  // One-time, first-run-only seeding — ONLY for the default node. Runs at most
-  // once per subscription, only when signed in and connected. Does an explicit
-  // get() (single read straight from the server) and writes DEFAULT_STATE *only*
-  // if the node truly does not exist AND carries no _seeded marker. After a
-  // successful seed the marker is set, so this can never fire twice — not even
-  // by accident, on any device. It is NOT driven by onValue(), so it cannot
-  // lose a race with the real data arriving. Per-user nodes (schedule-2, …) are
-  // never seeded — they start empty.
+  // First-run seeding — ONLY for the default node. Runs at most once per
+  // subscription, only when signed in and connected. Does an explicit get() (a
+  // single read straight from the server, so it can't lose a race with the
+  // onValue snapshot) and writes DEFAULT_STATE when the board has no lessons
+  // yet — either the node is absent, or it exists but holds no events. The
+  // _seeded marker, stamped on the first seed, permanently blocks re-seeding:
+  // once the starter data has been written, a later «Очистить всё» stays
+  // cleared. Per-user nodes (schedule-2, …) are never seeded — they start empty.
   async function seedIfEmpty() {
     if (seedChecked || !scheduleRef || !currentUser || !isConnected) return;
     if (activePath !== DEFAULT_SCHEDULE_PATH) return;
     seedChecked = true;
     try {
       var snap = await get(scheduleRef);
-      // Seed only if the node is truly absent. Any existing content — real
-      // data, or just the /schedule/_seeded marker from a previous seed —
-      // makes snap.exists() true and blocks a second seed forever.
-      if (snap.exists()) return;
+      var val = snap.exists() ? snap.val() : null;
+      // Seeded once already — leave it alone, even if the board was later emptied.
+      if (val && val._seeded) return;
+      // Firebase may hand events back as an array or, for a sparse list, an
+      // object — treat either non-empty shape as "the board already has lessons".
+      var ev = val && val.events;
+      var hasLessons = Array.isArray(ev)
+        ? ev.length > 0
+        : !!(ev && typeof ev === 'object' && Object.keys(ev).length > 0);
+      if (hasLessons) return;
       var seed = clone(DEFAULT_STATE);
       seed._seeded = true;
       await set(scheduleRef, seed);
-      console.log('[seed] база была пуста — записаны стартовые данные один раз');
+      console.log('[seed] на доске не было занятий — записаны стартовые данные один раз');
     } catch (e) {
       seedChecked = false;                  // let a later auth/connect retry
       console.error('[seed] проверка не удалась', e);
