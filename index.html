@@ -310,17 +310,8 @@
     pointer-events: none;
   }
 
-  /* Отменённое занятие/дело: приглушено и перечёркнуто — и текст, и вся ячейка. */
-  .event.cancelled { opacity: .5; }
-  .event.cancelled .ev-title, .event.cancelled .ev-time { text-decoration: line-through; }
-  .event.cancelled::after {
-    content: "";
-    position: absolute;
-    left: -6px; right: -6px; top: 50%;
-    border-top: 2px solid rgba(255,255,255,.92);
-    transform: rotate(-5deg);
-    pointer-events: none;
-  }
+  /* Отменённое занятие/дело: не перечёркивается, а становится прозрачным на 70%. */
+  .event.cancelled { opacity: .3; }
 
   .event .ev-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .event .ev-time {
@@ -449,8 +440,7 @@
   }
   .mx-note { color: var(--muted); font-size: 11px; font-style: italic; white-space: normal; text-align: left; }
   .mx-entry.other-type .mx-time { color: var(--warn); font-style: italic; }
-  .mx-entry.cancelled { opacity: .55; }
-  .mx-entry.cancelled .mx-time { text-decoration: line-through; }
+  .mx-entry.cancelled { opacity: .3; }
 
   .mx-input {
     width: 100%;
@@ -670,7 +660,7 @@
       </div>
       <label>Категория<select id="e-category"></select></label>
       <label>Заметка<textarea id="e-notes" rows="2"></textarea></label>
-      <label class="checkbox"><input type="checkbox" id="e-cancelled"> Отменено (зачеркнуть в расписании)</label>
+      <label class="checkbox"><input type="checkbox" id="e-cancelled"> Отменено (бледное в расписании)</label>
       <div class="modal-actions">
         <button type="button" id="e-delete" class="btn-danger">Удалить</button>
         <div class="spacer"></div>
