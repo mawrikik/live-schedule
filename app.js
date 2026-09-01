@@ -14,51 +14,54 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   var DEFAULT_STATE = {
     "categories": [
       { "id": "cat-class", "name": "Занятие", "color": "#4f6bff", "isClass": true },
+      { "id": "cat-pair", "name": "Пара", "color": "#6b7280", "isClass": true },
       { "id": "cat-other", "name": "Дело", "color": "#ffab40", "isClass": false }
     ],
     "events": [
-      { "id": "eafeaa48-f6bd-48c3-bfef-afdfb6dd31a3", "title": "Спецкурс — Бычков", "day": 0, "start": 650, "end": 745, "categoryId": "cat-class", "notes": "С/К по выбору · ауд. Ц-75 · доц. Бычков М. Е., асп. Сторожева К. Д." },
-      { "id": "29e99eec-2747-420a-b8fd-a356c2a4b645", "title": "Философские вопросы естествознания", "day": 0, "start": 810, "end": 905, "categoryId": "cat-class", "notes": "ауд. 5-51 · доц. Эрекаев В. Д." },
-      { "id": "420179ee-64de-44b6-ad05-3e556d87af60", "title": "ФТД — Шугаев", "day": 0, "start": 920, "end": 1015, "categoryId": "cat-class", "notes": "ФТД · ауд. Каф. · проф. Шугаев Ф. В." },
-      { "id": "d7f3b884-1c3c-4621-9e8f-c19d2d958724", "title": "Спецкурс — Дергачёв", "day": 0, "start": 1025, "end": 1120, "categoryId": "cat-class", "notes": "С/К по выбору · ауд. Ц-75 · асс. Дергачёв М. А." },
-      { "id": "7495686e-3d37-41a0-b181-229ad7b16283", "title": "Дисц. спец. — Николаев", "day": 1, "start": 540, "end": 745, "categoryId": "cat-class", "notes": "Д/С · ауд. Ц-75 · проф. Николаев П. Н. (2 пары)" },
-      { "id": "2feebb9f-4392-47ac-be42-d390336df917", "title": "Дисц. спец. — Коваль", "day": 1, "start": 810, "end": 1015, "categoryId": "cat-class", "notes": "Д/С · ауд. Ц-75 · доц. Коваль Г. В. (2 пары)" },
-      { "id": "40b6351a-1e49-4d73-9e0d-f321c9cca8c5", "title": "Психология", "day": 1, "start": 1025, "end": 1120, "categoryId": "cat-class", "notes": "ауд. им. Хохлова · ст. преп. Стрельников С. В." },
-      { "id": "1b51a499-a6f0-4f01-8e18-dcc108c35434", "title": "История России", "day": 2, "start": 540, "end": 745, "categoryId": "cat-class", "notes": "ауд. 5-19 · н. с. Князев П. Ю." },
-      { "id": "ad1def6a-f5df-4bde-95ce-0c62d8a684df", "title": "Межфакультетский курс", "day": 2, "start": 910, "end": 1130, "categoryId": "cat-class", "notes": "15:10–18:50 · межфакультетские курсы" },
-      { "id": "7c38c119-71bd-4eda-a1f6-6ceeab89e6c8", "title": "Военная подготовка", "day": 3, "start": 540, "end": 1015, "categoryId": "cat-class", "notes": "9:00–16:55" },
-      { "id": "5eb7325a-6ced-4a67-84f8-42ed0c113335", "title": "Спецкурс — Савченко", "day": 3, "start": 1025, "end": 1120, "categoryId": "cat-class", "notes": "С/К по выбору · ауд. Каф. · проф. Савченко А. М." },
-      { "id": "033d1779-24bc-43fa-a28c-b51f1b82f006", "title": "Дисц. спец. — Савченко", "day": 4, "start": 650, "end": 745, "categoryId": "cat-class", "notes": "Д/С · ауд. Ц-75 · проф. Савченко А. М." },
-      { "id": "b75a9735-5342-4aad-bf4e-9bf6e2324ed8", "title": "Педагогика", "day": 4, "start": 810, "end": 905, "categoryId": "cat-class", "notes": "ауд. им. Хохлова · Крашенниников Е. Е." },
-      { "id": "b277b515-8d1c-438a-ae6f-53934206828f", "title": "Правоведение", "day": 4, "start": 920, "end": 1015, "categoryId": "cat-class", "notes": "ауд. им. Хохлова · доц. Долганин А. А." },
-      { "id": "0e22b51f-44f0-49c7-a0ef-f3e7b25e10fc", "title": "Общие вопросы преподавания физ.-мат. дисциплин", "day": 4, "start": 1025, "end": 1120, "categoryId": "cat-class", "notes": "ауд. СФА · доц. Рыжиков С. Б." },
-      { "id": "5c71b700-673f-42b8-9358-33b542c42026", "title": "ФТД — Власов", "day": 5, "start": 540, "end": 635, "categoryId": "cat-class", "notes": "ФТД · ауд. Ц-75 · вед. н. с. Власов А. А." },
-      { "id": "247a72a3-ea0a-4fb6-b555-87a1dce65360", "title": "Спецкурс — Боголюбов", "day": 5, "start": 650, "end": 745, "categoryId": "cat-class", "notes": "С/К по выбору · ауд. Ц-75 · проф. Боголюбов Н. Н." },
-      { "id": "62618f89-3512-4f71-aedc-3c2b8e4fa672", "title": "Философские вопросы естествознания", "day": 5, "start": 810, "end": 905, "categoryId": "cat-class", "notes": "ауд. 5-19 · проф. Яковлев В. А." },
-      { "id": "09c668c1-d1a5-4a88-903e-625586ead0de", "title": "Дисц. спец. — Савченко", "day": 5, "start": 1025, "end": 1120, "categoryId": "cat-class", "notes": "Д/С · ауд. Каф. · проф. Савченко А. М." }
+      { "id": "eafeaa48-f6bd-48c3-bfef-afdfb6dd31a3", "title": "Спецкурс — Бычков", "day": 0, "start": 650, "end": 745, "categoryId": "cat-pair", "notes": "С/К по выбору · ауд. Ц-75 · доц. Бычков М. Е., асп. Сторожева К. Д." },
+      { "id": "29e99eec-2747-420a-b8fd-a356c2a4b645", "title": "Философские вопросы естествознания", "day": 0, "start": 810, "end": 905, "categoryId": "cat-pair", "notes": "ауд. 5-51 · доц. Эрекаев В. Д." },
+      { "id": "420179ee-64de-44b6-ad05-3e556d87af60", "title": "ФТД — Шугаев", "day": 0, "start": 920, "end": 1015, "categoryId": "cat-pair", "notes": "ФТД · ауд. Каф. · проф. Шугаев Ф. В." },
+      { "id": "d7f3b884-1c3c-4621-9e8f-c19d2d958724", "title": "Спецкурс — Дергачёв", "day": 0, "start": 1025, "end": 1120, "categoryId": "cat-pair", "notes": "С/К по выбору · ауд. Ц-75 · асс. Дергачёв М. А." },
+      { "id": "7495686e-3d37-41a0-b181-229ad7b16283", "title": "Дисц. спец. — Николаев", "day": 1, "start": 540, "end": 745, "categoryId": "cat-pair", "notes": "Д/С · ауд. Ц-75 · проф. Николаев П. Н. (2 пары)" },
+      { "id": "2feebb9f-4392-47ac-be42-d390336df917", "title": "Дисц. спец. — Коваль", "day": 1, "start": 810, "end": 1015, "categoryId": "cat-pair", "notes": "Д/С · ауд. Ц-75 · доц. Коваль Г. В. (2 пары)" },
+      { "id": "40b6351a-1e49-4d73-9e0d-f321c9cca8c5", "title": "Психология", "day": 1, "start": 1025, "end": 1120, "categoryId": "cat-pair", "notes": "ауд. им. Хохлова · ст. преп. Стрельников С. В." },
+      { "id": "1b51a499-a6f0-4f01-8e18-dcc108c35434", "title": "История России", "day": 2, "start": 540, "end": 745, "categoryId": "cat-pair", "notes": "ауд. 5-19 · н. с. Князев П. Ю." },
+      { "id": "ad1def6a-f5df-4bde-95ce-0c62d8a684df", "title": "Межфакультетский курс", "day": 2, "start": 910, "end": 1130, "categoryId": "cat-pair", "notes": "15:10–18:50 · межфакультетские курсы" },
+      { "id": "7c38c119-71bd-4eda-a1f6-6ceeab89e6c8", "title": "Военная подготовка", "day": 3, "start": 540, "end": 1015, "categoryId": "cat-pair", "notes": "9:00–16:55" },
+      { "id": "5eb7325a-6ced-4a67-84f8-42ed0c113335", "title": "Спецкурс — Савченко", "day": 3, "start": 1025, "end": 1120, "categoryId": "cat-pair", "notes": "С/К по выбору · ауд. Каф. · проф. Савченко А. М." },
+      { "id": "033d1779-24bc-43fa-a28c-b51f1b82f006", "title": "Дисц. спец. — Савченко", "day": 4, "start": 650, "end": 745, "categoryId": "cat-pair", "notes": "Д/С · ауд. Ц-75 · проф. Савченко А. М." },
+      { "id": "b75a9735-5342-4aad-bf4e-9bf6e2324ed8", "title": "Педагогика", "day": 4, "start": 810, "end": 905, "categoryId": "cat-pair", "notes": "ауд. им. Хохлова · Крашенниников Е. Е." },
+      { "id": "b277b515-8d1c-438a-ae6f-53934206828f", "title": "Правоведение", "day": 4, "start": 920, "end": 1015, "categoryId": "cat-pair", "notes": "ауд. им. Хохлова · доц. Долганин А. А." },
+      { "id": "0e22b51f-44f0-49c7-a0ef-f3e7b25e10fc", "title": "Общие вопросы преподавания физ.-мат. дисциплин", "day": 4, "start": 1025, "end": 1120, "categoryId": "cat-pair", "notes": "ауд. СФА · доц. Рыжиков С. Б." },
+      { "id": "5c71b700-673f-42b8-9358-33b542c42026", "title": "ФТД — Власов", "day": 5, "start": 540, "end": 635, "categoryId": "cat-pair", "notes": "ФТД · ауд. Ц-75 · вед. н. с. Власов А. А." },
+      { "id": "247a72a3-ea0a-4fb6-b555-87a1dce65360", "title": "Спецкурс — Боголюбов", "day": 5, "start": 650, "end": 745, "categoryId": "cat-pair", "notes": "С/К по выбору · ауд. Ц-75 · проф. Боголюбов Н. Н." },
+      { "id": "62618f89-3512-4f71-aedc-3c2b8e4fa672", "title": "Философские вопросы естествознания", "day": 5, "start": 810, "end": 905, "categoryId": "cat-pair", "notes": "ауд. 5-19 · проф. Яковлев В. А." },
+      { "id": "09c668c1-d1a5-4a88-903e-625586ead0de", "title": "Дисц. спец. — Савченко", "day": 5, "start": 1025, "end": 1120, "categoryId": "cat-pair", "notes": "Д/С · ауд. Каф. · проф. Савченко А. М." }
     ],
     "nameColors": {
-      "Спецкурс — Бычков": "#4f6bff",
-      "Философские вопросы естествознания": "#e5484d",
-      "ФТД — Шугаев": "#30a46c",
-      "Спецкурс — Дергачёв": "#8e4ec6",
-      "Дисц спец — Николаев": "#0891b2",
-      "Дисц спец — Коваль": "#e93d82",
-      "Психология": "#65a30d",
-      "История России": "#d97706",
-      "Межфакультетский курс": "#6366f1",
-      "Военная подготовка": "#0d9488",
-      "Спецкурс — Савченко": "#c026d3",
-      "Дисц спец — Савченко": "#a16207",
-      "Педагогика": "#475569",
-      "Правоведение": "#7c3aed",
-      "Общие вопросы преподавания физ -мат дисциплин": "#0284c7",
-      "ФТД — Власов": "#be123c",
-      "Спецкурс — Боголюбов": "#4d7c0f"
+      "Спецкурс — Бычков": "#6b7280",
+      "Философские вопросы естествознания": "#6b7280",
+      "ФТД — Шугаев": "#6b7280",
+      "Спецкурс — Дергачёв": "#6b7280",
+      "Дисц спец — Николаев": "#6b7280",
+      "Дисц спец — Коваль": "#6b7280",
+      "Психология": "#6b7280",
+      "История России": "#6b7280",
+      "Межфакультетский курс": "#6b7280",
+      "Военная подготовка": "#6b7280",
+      "Спецкурс — Савченко": "#6b7280",
+      "Дисц спец — Савченко": "#6b7280",
+      "Педагогика": "#6b7280",
+      "Правоведение": "#6b7280",
+      "Общие вопросы преподавания физ -мат дисциплин": "#6b7280",
+      "ФТД — Власов": "#6b7280",
+      "Спецкурс — Боголюбов": "#6b7280"
     }
   };
 
   var DAY_START = 6 * 60, DAY_END = 24 * 60;
+  // Серый цвет категории «Пара» и всех исходных пар расписания 507.
+  var PAIR_COLOR = '#6b7280';
   var GAP_ROW_HEIGHT = 8, PX_PER_MIN = 1.1, MIN_CONTENT_HEIGHT = 30;
   var SNAP = 15, MIN_DURATION = 15;
   var DAY_NAMES = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
@@ -103,6 +106,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   var currentUser = null;
   var stateLoaded = false;    // first onValue() snapshot from the server has arrived
   var seedChecked = false;    // the one-time "is the DB empty?" get() check has run
+  var pairPresetChecked = false; // the one-time "переведи исходные пары в «Пара»" pass has run
   var isConnected = false;
   var pendingWrite = false;   // a local mutation is waiting for its debounced write
   var syncTimer = null;
@@ -545,6 +549,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     var nameColors = (raw.nameColors && typeof raw.nameColors === 'object') ? raw.nameColors : {};
     var out = { categories: categories, events: events, nameColors: nameColors };
     if (raw._seeded) out._seeded = true; // carry the one-time seed marker through
+    if (raw._pairPreset) out._pairPreset = true; // ...и маркер «исходные пары уже покрашены»
     return out;
   }
 
@@ -597,6 +602,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       stateLoaded = true;
       refreshConnectionStatus();
     }
+    applyPairPreset();
   }
 
   // (Re)bind the board to a Realtime Database node. Called on connect and again
@@ -613,6 +619,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     pendingRemote = null;
     stateLoaded = false;
     seedChecked = false;
+    pairPresetChecked = false;
     clearHistory();
     state = { categories: clone(DEFAULT_STATE.categories), events: [], nameColors: {} };
     render();
@@ -628,6 +635,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     });
 
     seedIfEmpty();
+    applyPairPreset();
   }
 
   // First-run seeding — ONLY for the default node. Runs at most once per
@@ -664,6 +672,39 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     }
   }
 
+  // Одноразовая доводка исходного расписания 507: занятия, записанные сидом,
+  // переводятся в категорию «Пара» и красятся в серый. Работает и на уже
+  // засеянной доске. «Пары» — это события из DEFAULT_STATE (их id совпадают
+  // с тем, что сид записал в базу), так что позже добавленные вручную занятия
+  // не трогаются. Флаг _pairPreset в состоянии не даёт применить это повторно,
+  // pairPresetChecked — второй раз за сессию.
+  function applyPairPreset() {
+    if (pairPresetChecked || isReadOnly || !stateLoaded || !currentUser || !isConnected) return;
+    if (state._pairPreset) { pairPresetChecked = true; return; }
+
+    var seedIds = {};
+    DEFAULT_STATE.events.forEach(function (e) { seedIds[e.id] = true; });
+    var targets = state.events.filter(function (e) { return seedIds[e.id]; });
+    if (!targets.length) return; // не та доска (или данные ещё не догрузились) — повторим позже
+
+    pairPresetChecked = true;
+    if (!state.categories.some(function (c) { return c.id === 'cat-pair'; })) {
+      state.categories.push({ id: 'cat-pair', name: 'Пара', color: PAIR_COLOR, isClass: true });
+    }
+    if (!state.nameColors) state.nameColors = {};
+    targets.forEach(function (e) {
+      e.categoryId = 'cat-pair';
+      state.nameColors[nameKey(e.title)] = PAIR_COLOR;
+    });
+    state._pairPreset = true;
+
+    render();
+    renderCategoryOptions();
+    renderCategoryList();
+    scheduleWrite();
+    console.log('[pair-preset] ' + targets.length + ' пар переведены в категорию «Пара» и покрашены в серый');
+  }
+
   function connectFirebase() {
     try {
       var app = initializeApp(firebaseConfig);
@@ -686,6 +727,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       if (currentUser) {
         exitReadOnly();
         seedIfEmpty();
+        applyPairPreset();
       } else {
         enterReadOnly();
       }
@@ -694,7 +736,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     onValue(ref(dbInstance, '.info/connected'), function (snap) {
       isConnected = snap.val() === true;
       refreshConnectionStatus();
-      if (isConnected) seedIfEmpty();
+      if (isConnected) { seedIfEmpty(); applyPairPreset(); }
     });
 
     // Bind to the default node right away so visitors see it while auth
