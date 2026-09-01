@@ -1138,6 +1138,23 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     });
   }
 
+  // Тонкие линии-ориентиры на каждом ровном часе (10:00, 15:00, …), которые
+  // попадают в «занятой» участок ленты. Они заметнее обычных швов между
+  // блоками, поэтому по ним легко читать время. В сжатых пустых промежутках
+  // линии не рисуем — там час занимает 8px и ориентир бессмыслен.
+  function addHourLines(col, layout) {
+    var busy = layout.segments.filter(function (s) { return s.busy; });
+    if (!busy.length) return;
+    for (var m = Math.ceil(DAY_START / 60) * 60; m <= DAY_END; m += 60) {
+      var min = m;
+      if (!busy.some(function (s) { return min >= s.from && min <= s.to; })) continue;
+      var line = document.createElement('div');
+      line.className = 'hour-line';
+      line.style.top = Math.round(minutesToY(layout, min)) + 'px';
+      col.appendChild(line);
+    }
+  }
+
   function rebuildSkeleton(layout) {
     var heightPx = layout.totalHeight;
 
@@ -1171,6 +1188,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       col.dataset.day = String(d);
       col.style.height = heightPx + 'px';
       col.style.backgroundImage = dayBg;
+      addHourLines(col, layout);
       body.appendChild(col);
     }
 

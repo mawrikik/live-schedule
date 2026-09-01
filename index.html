@@ -281,6 +281,15 @@
   }
   .day-col:last-child { border-right: none; }
 
+  /* Линия-ориентир на ровном часе — заметнее обычных швов между блоками. */
+  .hour-line {
+    position: absolute;
+    left: 0; right: 0;
+    border-top: 1px solid var(--muted);
+    opacity: .35;
+    pointer-events: none;
+  }
+
   .event {
     position: absolute;
     border-radius: 7px;
