@@ -72,12 +72,25 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   function todayDayIndex() { return (new Date().getDay() + 6) % 7; }
   var mobileActiveDay = todayDayIndex();
 
+  // Палитра автоцветов для имён занятий/дел. Серые и близкие к серому тона
+  // сюда не входят намеренно: серый (PAIR_COLOR) зарезервирован за категорией
+  // «Пара», поэтому обычная ячейка серой автоматически не станет.
   var NAME_PALETTE = [
     '#4f6bff', '#e5484d', '#30a46c', '#8e4ec6', '#0891b2', '#e93d82',
     '#65a30d', '#d97706', '#6366f1', '#0d9488', '#c026d3', '#a16207',
-    '#475569', '#7c3aed', '#0284c7', '#be123c', '#4d7c0f', '#b45309',
+    '#7c3aed', '#0284c7', '#be123c', '#4d7c0f', '#b45309',
     '#4338ca', '#ffab40'
   ];
+
+  // Похож ли цвет на серый (низкая насыщенность) — такие тона обычной ячейке
+  // не назначаем, чтобы не путать её с парой.
+  function isGreyish(hex) {
+    var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
+    if (!m) return false;
+    var r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+    var max = Math.max(r, g, b), min = Math.min(r, g, b);
+    return (max - min) <= 40; // разброс каналов мал → цвет near-grey
+  }
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
 
@@ -148,7 +161,12 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     var key = nameKey(title);
     if (!state.nameColors) state.nameColors = {};
     if (state.nameColors[key]) return state.nameColors[key];
-    var color = NAME_PALETTE[Object.keys(state.nameColors).length % NAME_PALETTE.length];
+    // Берём следующий цвет палитры, пропуская серые тона (они — для «Пар»).
+    var start = Object.keys(state.nameColors).length;
+    var color = NAME_PALETTE[start % NAME_PALETTE.length];
+    for (var i = 0; i < NAME_PALETTE.length && isGreyish(color); i++) {
+      color = NAME_PALETTE[(start + i + 1) % NAME_PALETTE.length];
+    }
     state.nameColors[key] = color;
     return color;
   }
