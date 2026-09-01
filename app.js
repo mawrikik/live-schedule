@@ -84,6 +84,8 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   // this is what prevents DEFAULT_STATE from ever overwriting real data.
   var state = { categories: clone(DEFAULT_STATE.categories), events: [], nameColors: {} };
   var editingId = null;
+  // Занятия, выделенные кликом в «Ленте времени» — для групповых действий (панель сбоку).
+  var selectedIds = new Set();
   // Which layout the board shows: 'timeline' (the proportional day columns)
   // or 'matrix' (a days×names table with just the times in the cells).
   var currentView = 'timeline';
@@ -372,6 +374,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   // category delete buttons are drawn conditionally on isReadOnly).
   function applyReadOnlyUI() {
     var disable = isReadOnly;
+    if (isReadOnly) selectedIds.clear();
     document.getElementById('readonly-notice').hidden = !isReadOnly;
     document.getElementById('event-form').querySelectorAll('input,select,textarea,button').forEach(function (el) { el.disabled = disable; });
     document.getElementById('category-form').querySelectorAll('input,button').forEach(function (el) { el.disabled = disable; });
@@ -863,12 +866,14 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   }
 
   function render() {
+    pruneSelection();
     currentLayout = computeLayout();
     rebuildSkeleton(currentLayout);
     renderEvents();
     renderNameColorList();
     renderDayTabs();
     renderMatrix();
+    renderSelectionPanel();
   }
 
   // Second format: rows are names/task titles, columns are the seven weekdays,
@@ -1058,6 +1063,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
 
   function setView(view) {
     currentView = view === 'matrix' ? 'matrix' : 'timeline';
+    selectedIds.clear();
     var wrap = document.getElementById('grid-wrap');
     if (wrap) wrap.classList.toggle('matrix-view', currentView === 'matrix');
     var tabs = document.getElementById('view-tabs');
@@ -1198,7 +1204,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   function buildEventEl(ev, col, totalCols) {
     var cat = getCategory(ev.categoryId);
     var el = document.createElement('div');
-    el.className = 'event' + (cat.isClass ? '' : ' other-type') + (ev.cancelled ? ' cancelled' : '') + (isReadOnly ? ' readonly' : '');
+    el.className = 'event' + (cat.isClass ? '' : ' other-type') + (ev.cancelled ? ' cancelled' : '') + (isReadOnly ? ' readonly' : '') + (selectedIds.has(ev.id) ? ' selected' : '');
     el.dataset.id = ev.id;
     positionEventEl(el, ev, col, totalCols, currentLayout);
     el.style.background = getNameColor(ev.title);
@@ -1222,6 +1228,11 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       el.appendChild(handleBottom);
       makeDraggable(el, ev);
       makeResizable(el, ev, handleTop, handleBottom);
+      el.addEventListener('dblclick', function (e) {
+        if (isReadOnly) return;
+        e.preventDefault();
+        openEditModal(ev.id);
+      });
     }
 
     return el;
@@ -1277,7 +1288,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
         if (moved) {
           commit(function () { ev.day = previewDay; ev.start = previewStart; ev.end = previewStart + duration; });
         } else {
-          openEditModal(ev.id);
+          handleEventClick(ev, e2);
         }
         endInteraction();
       }
@@ -1489,6 +1500,147 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     document.getElementById('edit-backdrop').classList.remove('open');
   }
 
+  // ── Выделение занятий и групповые действия ────────────────────────────────
+  // Одиночный клик по занятию в «Ленте времени» не открывает карточку, а
+  // выделяет его (Ctrl/Cmd/Shift+клик добавляет/убирает из выделения; клик по
+  // единственному выделенному снимает выделение). Пока что-то выделено, сбоку
+  // висит панель: сменить категорию, отметить отменённым или удалить (Del) —
+  // сразу для всех выделенных. Двойной клик открывает карточку редактирования.
+
+  function pruneSelection() {
+    selectedIds.forEach(function (id) {
+      if (!state.events.some(function (e) { return e.id === id; })) selectedIds.delete(id);
+    });
+  }
+
+  function clearSelection() {
+    if (!selectedIds.size) return;
+    selectedIds.clear();
+    refreshSelectionUI();
+  }
+
+  function handleEventClick(ev, e) {
+    if (isReadOnly) return;
+    var id = ev.id;
+    var additive = e && (e.ctrlKey || e.metaKey || e.shiftKey);
+    if (additive) {
+      if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+    } else if (selectedIds.size === 1 && selectedIds.has(id)) {
+      selectedIds.delete(id);
+    } else {
+      selectedIds.clear();
+      selectedIds.add(id);
+    }
+    refreshSelectionUI();
+  }
+
+  // Обновить только рамку выделения и боковую панель, без полного re-render.
+  function refreshSelectionUI() {
+    gridEl.querySelectorAll('.event').forEach(function (el) {
+      el.classList.toggle('selected', selectedIds.has(el.dataset.id));
+    });
+    renderSelectionPanel();
+  }
+
+  function selectedEvents() {
+    return Array.from(selectedIds).map(function (id) {
+      return state.events.find(function (e) { return e.id === id; });
+    }).filter(Boolean);
+  }
+
+  function renderSelectionPanel() {
+    var bar = document.getElementById('selection-bar');
+    if (!bar) return;
+    var evs = selectedEvents();
+    var show = !isReadOnly && currentView === 'timeline' && evs.length > 0;
+    bar.hidden = !show;
+    if (!show) return;
+
+    document.getElementById('sel-count-n').textContent = String(evs.length);
+    document.getElementById('sel-edit').hidden = evs.length !== 1;
+
+    var classCat = state.categories.find(function (c) { return c.isClass; });
+    var otherCat = state.categories.find(function (c) { return !c.isClass; });
+    var allOther = evs.every(function (e) { var c = getCategory(e.categoryId); return c && !c.isClass; });
+    var catBtn = document.getElementById('sel-cat');
+    if (allOther && classCat) {
+      catBtn.textContent = 'Сделать занятием';
+      catBtn.dataset.target = classCat.id;
+      catBtn.disabled = false;
+    } else if (otherCat) {
+      catBtn.textContent = 'Сделать делом';
+      catBtn.dataset.target = otherCat.id;
+      catBtn.disabled = false;
+    } else {
+      catBtn.textContent = 'Сделать делом';
+      catBtn.disabled = true;
+    }
+
+    var allCancelled = evs.every(function (e) { return e.cancelled; });
+    var cancelBtn = document.getElementById('sel-cancelled');
+    cancelBtn.textContent = allCancelled ? 'Снять отмену' : 'Отметить отменённым';
+    cancelBtn.dataset.value = allCancelled ? '' : '1';
+  }
+
+  function mutateSelected(mutateFn) {
+    if (isReadOnly || !selectedIds.size) return;
+    var ids = new Set(selectedIds);
+    commit(function () {
+      state.events.forEach(function (e) { if (ids.has(e.id)) mutateFn(e); });
+    });
+    refreshSelectionUI();
+  }
+
+  function deleteSelected() {
+    if (isReadOnly || !selectedIds.size) return;
+    var ids = new Set(selectedIds);
+    var n = ids.size;
+    showDialog(n === 1 ? 'Удалить выбранное занятие?' : 'Удалить выбранные занятия: ' + n + '?', true).then(function (ok) {
+      if (!ok) return;
+      commit(function () { state.events = state.events.filter(function (e) { return !ids.has(e.id); }); });
+      selectedIds.clear();
+      refreshSelectionUI();
+    });
+  }
+
+  function bindSelectionBar() {
+    document.getElementById('sel-edit').addEventListener('click', function () {
+      var id = Array.from(selectedIds)[0];
+      if (id) openEditModal(id);
+    });
+    document.getElementById('sel-cat').addEventListener('click', function () {
+      var target = this.dataset.target;
+      if (target) mutateSelected(function (e) { e.categoryId = target; });
+    });
+    document.getElementById('sel-cancelled').addEventListener('click', function () {
+      var on = this.dataset.value === '1';
+      mutateSelected(function (e) { if (on) e.cancelled = true; else delete e.cancelled; });
+    });
+    document.getElementById('sel-delete').addEventListener('click', deleteSelected);
+    document.getElementById('sel-clear').addEventListener('click', clearSelection);
+
+    var scroll = document.getElementById('grid-scroll');
+    if (scroll) scroll.addEventListener('click', function (e) {
+      if (isReadOnly || e.target.closest('.event')) return;
+      clearSelection();
+    });
+  }
+
+  function bindSelectionKeys() {
+    document.addEventListener('keydown', function (e) {
+      if (isReadOnly || !selectedIds.size) return;
+      var t = e.target, tag = t && t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+      if (document.querySelector('.modal-backdrop.open')) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        deleteSelected();
+      } else if (e.key === 'Escape') {
+        clearSelection();
+      }
+    });
+  }
+
   var SIDEBAR_COLLAPSE_KEY = 'schedulePlannerSidebarCollapsed';
 
   function bindSidebarToggle() {
@@ -1546,6 +1698,8 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     bindSidebarBackdrop();
     bindDayTabs();
     bindViewTabs();
+    bindSelectionBar();
+    bindSelectionKeys();
 
     // Locked until Firebase Auth reports a signed-in user.
     updateAuthUI();
