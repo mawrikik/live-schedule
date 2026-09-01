@@ -1447,6 +1447,18 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   }
 
   function bindForms() {
+    // При добавлении занятия: как только меняешь начало, конец сам встаёт на
+    // час позже. Это обычное поле — при необходимости конец можно поправить
+    // вручную, и правка сохранится (пока снова не тронешь начало).
+    var fStart = document.getElementById('f-start');
+    var fEnd = document.getElementById('f-end');
+    if (fStart && fEnd) {
+      fStart.addEventListener('change', function () {
+        if (!fStart.value) return;
+        fEnd.value = formatTime(Math.min(parseTime(fStart.value) + 60, 23 * 60 + 59));
+      });
+    }
+
     document.getElementById('event-form').addEventListener('submit', function (e) {
       e.preventDefault();
       if (isReadOnly) return;
