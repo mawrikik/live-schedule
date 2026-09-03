@@ -121,7 +121,11 @@
     overflow-y: auto;
     overflow-x: hidden;
     transition: width .2s ease, padding .2s ease;
+    /* Полосу прокрутки выносим к левому краю панели: контейнер в rtl,
+       содержимое возвращаем в ltr. */
+    direction: rtl;
   }
+  .sidebar > * { direction: ltr; }
   .layout.sidebar-collapsed .sidebar {
     width: 0;
     padding-left: 0;
