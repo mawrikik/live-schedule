@@ -518,9 +518,52 @@
     font-weight: 600;
   }
   .matrix-table thead th.mx-name-h { z-index: 3; }
-  .matrix-table tbody tr:nth-child(even) th.mx-name,
-  .matrix-table tbody tr:nth-child(even) td { background: var(--surface-alt); }
+  .matrix-table tbody tr.mx-row-alt th.mx-name,
+  .matrix-table tbody tr.mx-row-alt td { background: var(--surface-alt); }
   .matrix-table td.mx-day { min-width: 96px; }
+  .matrix-table tr.mx-row-hidden { display: none; }
+
+  /* Строки «Таблицы» сгруппированы в сворачиваемые мини-папки по категориям —
+     тот же принцип, что в списке «Цвета имён». */
+  .matrix-table th.mx-folder {
+    position: sticky; left: 0; z-index: 1;
+    background: var(--surface-alt);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    font-weight: 700;
+  }
+  .matrix-table th.mx-folder:hover { color: var(--accent); }
+  .matrix-table .mx-folder-arrow { display: inline-block; width: 12px; font-size: 10px; color: var(--muted); }
+  .matrix-table .mx-folder-count {
+    margin-left: 8px;
+    font-size: 11px; font-weight: 500;
+    color: var(--muted);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 0 7px;
+  }
+
+  /* Ручка перетаскивания строки (порядок общий с «Цвета имён»). */
+  .matrix-table .mx-drag-handle {
+    display: inline-block;
+    margin-right: 6px;
+    cursor: grab;
+    color: var(--muted);
+    font-size: 12px; line-height: 1; letter-spacing: -1px;
+    vertical-align: middle;
+    user-select: none;
+  }
+  .matrix-table .mx-drag-handle:active { cursor: grabbing; }
+  .matrix-table tr.mx-dragging { opacity: .4; }
+
+  /* Цветовая метка имени у правого края строки — тот же цвет, что у блока
+     занятия в «Ленте времени». */
+  .matrix-table th.mx-color-h { width: 12px; min-width: 12px; padding: 0; }
+  .matrix-table td.mx-color-cell {
+    width: 12px; min-width: 12px; padding: 0;
+    border-left: 1px solid var(--border);
+  }
 
   /* Ячейку можно редактировать «как в Google Таблицах»: клик открывает
      инлайн-поле ввода (см. swapForInput в app.js). */
@@ -558,6 +601,7 @@
   }
   .matrix-table.highlight-active tbody tr.hl-match-row td,
   .matrix-table.highlight-active tbody tr.hl-match-row th.mx-name { opacity: 1; }
+  .matrix-table.highlight-active tbody tr.mx-folder-row th { opacity: 1; }
   .matrix-table.highlight-active tbody tr.hl-match-row .mx-name-text,
   .matrix-table.highlight-active tbody tr.hl-match-row .mx-entry {
     display: inline-block;

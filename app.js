@@ -1034,48 +1034,135 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     var table = document.getElementById('matrix-table');
     if (!table) return;
 
-    var rows = {}, order = [];
+    var rows = {};
     state.events.forEach(function (ev) {
       var key = nameKey(ev.title);
-      if (!rows[key]) { rows[key] = { name: ev.title, days: [[], [], [], [], [], [], []] }; order.push(key); }
+      if (!rows[key]) rows[key] = { name: ev.title, days: [[], [], [], [], [], [], []] };
       rows[key].days[ev.day].push(ev);
     });
-    order.sort(function (a, b) { return rows[a].name.localeCompare(rows[b].name, 'ru'); });
+
+    // Тот же порядок и та же группировка по категориям, что в «Цвета имён».
+    var keys = orderedNameKeys().filter(function (k) { return rows[k]; });
 
     var head = '<thead><tr><th class="mx-name-h">Имя / дело</th>' +
       DAY_NAMES.map(function (n) { return '<th>' + escapeHtml(n) + '</th>'; }).join('') +
-      '</tr></thead>';
+      '<th class="mx-color-h"></th></tr></thead>';
 
-    if (!order.length) {
-      table.innerHTML = head + '<tbody><tr><td class="mx-empty" colspan="8">Пока нет занятий</td></tr></tbody>';
+    if (!keys.length) {
+      table.innerHTML = head + '<tbody><tr><td class="mx-empty" colspan="9">Пока нет занятий</td></tr></tbody>';
       return;
     }
 
     var editable = !isReadOnly;
-    var body = order.map(function (key) {
-      var row = rows[key];
-      var cells = row.days.map(function (list, day) {
-        var inner = '';
-        list.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
-        inner = list.map(function (ev) {
-          var cat = getCategory(ev.categoryId);
-          var cls = 'mx-entry' + (cat.isClass ? '' : ' other-type') + (ev.cancelled ? ' cancelled' : '');
-          var note = ev.notes ? '<span class="mx-note">' + escapeHtml(ev.notes) + '</span>' : '';
-          return '<span class="' + cls + '" data-id="' + ev.id + '">' +
-            '<span class="mx-time">' + escapeHtml(formatCellTime(ev)) + '</span>' + note + '</span>';
-        }).join('');
-        return '<td class="mx-day' + (editable ? ' editable' : '') + '" data-day="' + day + '">' + inner + '</td>';
-      }).join('');
-      var dot = editable
-        ? '<input type="color" class="mx-color" value="' + toHex6(getNameColor(row.name)) +
-          '" title="Изменить цвет">'
-        : '<span class="mx-dot" style="background:' + getNameColor(row.name) + '"></span>';
-      return '<tr data-name="' + escapeHtml(row.name) + '">' +
-        '<th class="mx-name' + (editable ? ' editable' : '') + '">' + dot +
-        '<span class="mx-name-text">' + escapeHtml(row.name) + '</span></th>' + cells + '</tr>';
-    }).join('');
+    var expanded = loadExpandedNameCats();
+    var grouped = groupNameKeysByCategory(keys);
+    var parts = [];
+    var alt = false;
 
-    table.innerHTML = head + '<tbody>' + body + '</tbody>';
+    grouped.order.forEach(function (id) {
+      var cat = id === '__none__' ? null : getCategory(id);
+      var gk = grouped.groups[id];
+      var isOpen = !!expanded[id];
+
+      parts.push(
+        '<tr class="mx-folder-row" data-cat-id="' + escapeHtml(id) + '">' +
+          '<th class="mx-folder" colspan="9" data-cat-id="' + escapeHtml(id) + '">' +
+            '<span class="mx-folder-arrow">' + (isOpen ? '▾' : '▸') + '</span>' +
+            '<span class="mx-folder-name">' + escapeHtml(cat ? cat.name : 'Без категории') + '</span>' +
+            '<span class="mx-folder-count">' + gk.length + '</span>' +
+          '</th>' +
+        '</tr>'
+      );
+
+      gk.forEach(function (key) {
+        var row = rows[key];
+        alt = !alt;
+        var color = getNameColor(row.name);
+        var cells = row.days.map(function (list, day) {
+          list.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
+          var inner = list.map(function (ev) {
+            var c = getCategory(ev.categoryId);
+            var cls = 'mx-entry' + (c.isClass ? '' : ' other-type') + (ev.cancelled ? ' cancelled' : '');
+            var note = ev.notes ? '<span class="mx-note">' + escapeHtml(ev.notes) + '</span>' : '';
+            return '<span class="' + cls + '" data-id="' + ev.id + '">' +
+              '<span class="mx-time">' + escapeHtml(formatCellTime(ev)) + '</span>' + note + '</span>';
+          }).join('');
+          return '<td class="mx-day' + (editable ? ' editable' : '') + '" data-day="' + day + '">' + inner + '</td>';
+        }).join('');
+
+        var handle = editable
+          ? '<span class="mx-drag-handle" draggable="true" title="Перетащите, чтобы изменить порядок">⠿</span>'
+          : '';
+        var dot = editable
+          ? '<input type="color" class="mx-color" value="' + toHex6(color) + '" title="Изменить цвет">'
+          : '<span class="mx-dot" style="background:' + escapeHtml(color) + '"></span>';
+
+        parts.push(
+          '<tr class="mx-row' + (alt ? ' mx-row-alt' : '') + (isOpen ? '' : ' mx-row-hidden') + '"' +
+            ' data-name="' + escapeHtml(row.name) + '" data-name-key="' + escapeHtml(key) +
+            '" data-cat-id="' + escapeHtml(id) + '">' +
+            '<th class="mx-name' + (editable ? ' editable' : '') + '">' + handle + dot +
+              '<span class="mx-name-text">' + escapeHtml(row.name) + '</span></th>' +
+            cells +
+            '<td class="mx-color-cell" style="background:' + escapeHtml(color) + '"></td>' +
+          '</tr>'
+        );
+      });
+    });
+
+    table.innerHTML = head + '<tbody>' + parts.join('') + '</tbody>';
+
+    if (editable) {
+      table.querySelectorAll('tbody tr.mx-row').forEach(function (tr) {
+        var h = tr.querySelector('.mx-drag-handle');
+        if (h) bindMxRowDrag(h, tr);
+        bindMxRowDrop(tr);
+      });
+    }
+  }
+
+  // Перетаскивание строк «Таблицы» — тот же общий порядок state.nameOrder,
+  // что и в списке «Цвета имён». Двигать можно только внутри своей категории.
+  var draggedMxKey = null;
+
+  function bindMxRowDrag(handle, tr) {
+    handle.addEventListener('dragstart', function (e) {
+      draggedMxKey = tr.dataset.nameKey;
+      tr.classList.add('mx-dragging');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', draggedMxKey); } catch (_) { }
+      }
+    });
+    handle.addEventListener('dragend', function () {
+      draggedMxKey = null;
+      var t = document.getElementById('matrix-table');
+      if (t) t.querySelectorAll('tr.mx-dragging').forEach(function (n) { n.classList.remove('mx-dragging'); });
+    });
+  }
+
+  function bindMxRowDrop(tr) {
+    tr.addEventListener('dragover', function (e) {
+      if (draggedMxKey == null) return;
+      var body = tr.parentNode;
+      var dragEl = body && body.querySelector('tr.mx-dragging');
+      if (!dragEl || dragEl === tr) return;
+      if (dragEl.dataset.catId !== tr.dataset.catId) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      var r = tr.getBoundingClientRect();
+      var after = (e.clientY - r.top) > r.height / 2;
+      body.insertBefore(dragEl, after ? tr.nextSibling : tr);
+    });
+    tr.addEventListener('drop', function (e) {
+      if (draggedMxKey == null) return;
+      e.preventDefault();
+      var t = document.getElementById('matrix-table');
+      if (!t) return;
+      var order = Array.prototype.slice.call(t.querySelectorAll('tbody tr[data-name-key]'))
+        .map(function (n) { return n.dataset.nameKey; });
+      commit(function () { state.nameOrder = order; });
+    });
   }
 
   // Pull a leading time (single "9" / "9:00" or a range "9-10:30") off the front
@@ -1241,9 +1328,15 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     });
 
     table.addEventListener('click', function (e) {
+      // Свернуть/раскрыть папку категории — работает и в режиме «только чтение».
+      var folder = e.target.closest('th.mx-folder');
+      if (folder) { toggleNameCat(folder.dataset.catId); return; }
+
       if (isReadOnly || e.target.closest('input.mx-input')) return;
       // Клик по кружку-цвету открывает системный выбор цвета, а не редактор имени.
       if (e.target.closest('input.mx-color')) return;
+      // Клик по ручке перетаскивания не должен открывать редактор имени.
+      if (e.target.closest('.mx-drag-handle')) return;
 
       var nameCell = e.target.closest('th.mx-name');
       if (nameCell) { editMatrixName(nameCell); return; }
@@ -1631,6 +1724,28 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   function saveExpandedNameCats() {
     try { localStorage.setItem(NC_EXPANDED_KEY, JSON.stringify(Object.keys(expandedNameCats))); } catch (e) { }
   }
+  // Свернуть/раскрыть папку категории. Состояние общее для списка «Цвета имён»
+  // и «Таблицы», поэтому перерисовываем оба представления.
+  function toggleNameCat(id) {
+    var m = loadExpandedNameCats();
+    if (m[id]) delete m[id]; else m[id] = true;
+    saveExpandedNameCats();
+    renderNameColorList();
+    renderMatrix();
+  }
+
+  // Порядок папок для группировки имён: как категории в state.categories,
+  // не привязанные к категории имена — в «Без категории» в конце.
+  function groupNameKeysByCategory(keys) {
+    var groups = Object.create(null);
+    keys.forEach(function (k) {
+      var id = nameCategoryId(k) || '__none__';
+      (groups[id] || (groups[id] = [])).push(k);
+    });
+    var order = state.categories.map(function (c) { return c.id; }).filter(function (id) { return groups[id]; });
+    Object.keys(groups).forEach(function (id) { if (order.indexOf(id) === -1) order.push(id); });
+    return { groups: groups, order: order };
+  }
 
   // К какой категории отнести имя: та, в которой у имени больше всего занятий
   // (при равенстве — встретившаяся первой).
@@ -1694,24 +1809,11 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     }
 
     var expanded = loadExpandedNameCats();
+    var grouped = groupNameKeysByCategory(names);
 
-    // Имена в порядке orderedNameKeys(), сгруппированные по категории.
-    var groups = Object.create(null);
-    names.forEach(function (name) {
-      var id = nameCategoryId(name) || '__none__';
-      (groups[id] || (groups[id] = [])).push(name);
-    });
-    // Порядок папок — как категории в state.categories, «Без категории» — в конце.
-    var groupOrder = state.categories
-      .map(function (c) { return c.id; })
-      .filter(function (id) { return groups[id]; });
-    Object.keys(groups).forEach(function (id) {
-      if (groupOrder.indexOf(id) === -1) groupOrder.push(id);
-    });
-
-    groupOrder.forEach(function (id) {
+    grouped.order.forEach(function (id) {
       var cat = id === '__none__' ? null : getCategory(id);
-      var rows = groups[id];
+      var rows = grouped.groups[id];
       var isOpen = !!expanded[id];
 
       var folder = document.createElement('li');
@@ -1725,11 +1827,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       count.className = 'nc-count';
       count.textContent = rows.length;
       folder.append(arrow, fname, count);
-      folder.addEventListener('click', function () {
-        if (expanded[id]) delete expanded[id]; else expanded[id] = true;
-        saveExpandedNameCats();
-        renderNameColorList();
-      });
+      folder.addEventListener('click', function () { toggleNameCat(id); });
       list.appendChild(folder);
 
       rows.forEach(function (name) {
