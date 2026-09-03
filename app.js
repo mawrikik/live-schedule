@@ -1613,46 +1613,131 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     });
   }
 
+  // Строки «Цвета имён» сгруппированы в сворачиваемые мини-папки по категориям.
+  // Раскрытые папки помним локально (не в общем состоянии) — по умолчанию всё
+  // свёрнуто.
+  var NC_EXPANDED_KEY = 'schedulePlannerNameColorGroups';
+  var expandedNameCats = null;
+
+  function loadExpandedNameCats() {
+    if (expandedNameCats) return expandedNameCats;
+    expandedNameCats = Object.create(null);
+    try {
+      var raw = localStorage.getItem(NC_EXPANDED_KEY);
+      if (raw) JSON.parse(raw).forEach(function (id) { expandedNameCats[id] = true; });
+    } catch (e) { }
+    return expandedNameCats;
+  }
+  function saveExpandedNameCats() {
+    try { localStorage.setItem(NC_EXPANDED_KEY, JSON.stringify(Object.keys(expandedNameCats))); } catch (e) { }
+  }
+
+  // К какой категории отнести имя: та, в которой у имени больше всего занятий
+  // (при равенстве — встретившаяся первой).
+  function nameCategoryId(key) {
+    var counts = Object.create(null);
+    var order = [];
+    state.events.forEach(function (ev) {
+      if (nameKey(ev.title) !== key) return;
+      var cat = getCategory(ev.categoryId);
+      if (!cat) return;
+      if (!(cat.id in counts)) { counts[cat.id] = 0; order.push(cat.id); }
+      counts[cat.id]++;
+    });
+    var best = order[0] || null;
+    order.forEach(function (id) { if (best == null || counts[id] > counts[best]) best = id; });
+    return best;
+  }
+
+  function buildNameColorRow(name) {
+    var li = document.createElement('li');
+    li.className = 'nc-row';
+    li.dataset.nameKey = name;
+    li.addEventListener('mouseenter', function () { hoverName = name; restoreHighlight(); });
+    li.addEventListener('mouseleave', function () { hoverName = null; restoreHighlight(); });
+    var label = document.createElement('span'); label.textContent = name;
+    if (isReadOnly) {
+      var swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = getNameColor(name);
+      li.append(swatch, label);
+    } else {
+      var handle = document.createElement('span');
+      handle.className = 'drag-handle';
+      handle.textContent = '⠿';
+      handle.title = 'Перетащите, чтобы изменить порядок';
+      handle.draggable = true;
+      bindNameOrderDrag(handle, li);
+      bindNameOrderDrop(li);
+      var picker = document.createElement('input');
+      picker.type = 'color';
+      picker.className = 'swatch-input';
+      picker.value = toHex6(getNameColor(name));
+      picker.title = 'Изменить цвет «' + name + '»';
+      picker.addEventListener('change', function () { setNameColor(name, picker.value); });
+      li.append(handle, picker, label);
+    }
+    return li;
+  }
+
   function renderNameColorList() {
     var list = document.getElementById('name-color-list');
     if (!list) return;
     var names = orderedNameKeys();
     list.innerHTML = '';
-    names.forEach(function (name) {
-      var li = document.createElement('li');
-      li.dataset.nameKey = name;
-      li.addEventListener('mouseenter', function () { hoverName = name; restoreHighlight(); });
-      li.addEventListener('mouseleave', function () { hoverName = null; restoreHighlight(); });
-      var label = document.createElement('span'); label.textContent = name;
-      if (isReadOnly) {
-        var swatch = document.createElement('span');
-        swatch.className = 'swatch';
-        swatch.style.background = getNameColor(name);
-        li.append(swatch, label);
-      } else {
-        var handle = document.createElement('span');
-        handle.className = 'drag-handle';
-        handle.textContent = '⠿';
-        handle.title = 'Перетащите, чтобы изменить порядок';
-        handle.draggable = true;
-        bindNameOrderDrag(handle, li);
-        bindNameOrderDrop(li);
-        var picker = document.createElement('input');
-        picker.type = 'color';
-        picker.className = 'swatch-input';
-        picker.value = toHex6(getNameColor(name));
-        picker.title = 'Изменить цвет «' + name + '»';
-        picker.addEventListener('change', function () { setNameColor(name, picker.value); });
-        li.append(handle, picker, label);
-      }
-      list.appendChild(li);
-    });
     if (!names.length) {
-      var li = document.createElement('li');
-      li.className = 'empty-hint';
-      li.textContent = 'Пока нет занятий';
-      list.appendChild(li);
+      var empty = document.createElement('li');
+      empty.className = 'empty-hint';
+      empty.textContent = 'Пока нет занятий';
+      list.appendChild(empty);
+      return;
     }
+
+    var expanded = loadExpandedNameCats();
+
+    // Имена в порядке orderedNameKeys(), сгруппированные по категории.
+    var groups = Object.create(null);
+    names.forEach(function (name) {
+      var id = nameCategoryId(name) || '__none__';
+      (groups[id] || (groups[id] = [])).push(name);
+    });
+    // Порядок папок — как категории в state.categories, «Без категории» — в конце.
+    var groupOrder = state.categories
+      .map(function (c) { return c.id; })
+      .filter(function (id) { return groups[id]; });
+    Object.keys(groups).forEach(function (id) {
+      if (groupOrder.indexOf(id) === -1) groupOrder.push(id);
+    });
+
+    groupOrder.forEach(function (id) {
+      var cat = id === '__none__' ? null : getCategory(id);
+      var rows = groups[id];
+      var isOpen = !!expanded[id];
+
+      var folder = document.createElement('li');
+      folder.className = 'nc-folder' + (isOpen ? ' open' : '');
+      var arrow = document.createElement('span');
+      arrow.className = 'nc-arrow';
+      arrow.textContent = isOpen ? '▾' : '▸';
+      var fname = document.createElement('span');
+      fname.textContent = cat ? cat.name : 'Без категории';
+      var count = document.createElement('span');
+      count.className = 'nc-count';
+      count.textContent = rows.length;
+      folder.append(arrow, fname, count);
+      folder.addEventListener('click', function () {
+        if (expanded[id]) delete expanded[id]; else expanded[id] = true;
+        saveExpandedNameCats();
+        renderNameColorList();
+      });
+      list.appendChild(folder);
+
+      rows.forEach(function (name) {
+        var row = buildNameColorRow(name);
+        if (!isOpen) row.hidden = true;
+        list.appendChild(row);
+      });
+    });
   }
 
   // Один раз вешаем обработчики на сам список: они принимают перетаскивание,

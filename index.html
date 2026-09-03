@@ -261,6 +261,30 @@
   }
   #name-color-list .drag-handle:active { cursor: grabbing; }
 
+  /* «Цвета имён» сгруппированы в сворачиваемые мини-папки по категориям. */
+  #name-color-list .nc-folder {
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 3px 0;
+  }
+  #name-color-list .nc-folder:hover { color: var(--accent); }
+  #name-color-list .nc-arrow { flex: none; width: 10px; font-size: 10px; color: var(--muted); }
+  #name-color-list .nc-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0 7px;
+  }
+  #name-color-list .nc-row { padding-left: 16px; }
+  #name-color-list .nc-row[hidden] { display: none; }
+
   .grid-wrap { flex: 1; overflow: hidden; position: relative; display: flex; flex-direction: column; }
   .grid-scroll { flex: 1; overflow: auto; }
   .schedule-grid { display: inline-block; min-width: 100%; }
