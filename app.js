@@ -10,7 +10,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   // Seed data written to the database ONCE, and only if an explicit get()
   // check proves the node is genuinely empty AND has no /schedule/_seeded
   // flag (see seedIfEmpty). It is never used as live state and never written
-  // on a normal load. Schema: { categories, events, nameColors }.
+  // on a normal load. Schema: { categories, events, nameColors, nameOrder }.
   var DEFAULT_STATE = {
     "categories": [
       { "id": "cat-class", "name": "Занятие", "color": "#4f6bff", "isClass": true },
@@ -56,7 +56,8 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       "Общие вопросы преподавания физ -мат дисциплин": "#6b7280",
       "ФТД — Власов": "#6b7280",
       "Спецкурс — Боголюбов": "#6b7280"
-    }
+    },
+    "nameOrder": []
   };
 
   var DAY_START = 6 * 60, DAY_END = 24 * 60;
@@ -98,7 +99,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   // Live state starts EMPTY (only the base categories, so the <select>s work).
   // Nothing is shown or written until the first onValue() snapshot arrives —
   // this is what prevents DEFAULT_STATE from ever overwriting real data.
-  var state = { categories: clone(DEFAULT_STATE.categories), events: [], nameColors: {} };
+  var state = { categories: clone(DEFAULT_STATE.categories), events: [], nameColors: {}, nameOrder: [] };
   var editingId = null;
   // Занятия, выделенные кликом в «Ленте времени» — для групповых действий (панель сбоку).
   var selectedIds = new Set();
@@ -634,7 +635,10 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       : clone(DEFAULT_STATE.categories);
     var events = Array.isArray(raw.events) ? raw.events.filter(Boolean) : [];
     var nameColors = (raw.nameColors && typeof raw.nameColors === 'object') ? raw.nameColors : {};
-    var out = { categories: categories, events: events, nameColors: nameColors };
+    var nameOrder = Array.isArray(raw.nameOrder)
+      ? raw.nameOrder.filter(function (k) { return typeof k === 'string'; })
+      : [];
+    var out = { categories: categories, events: events, nameColors: nameColors, nameOrder: nameOrder };
     if (raw._seeded) out._seeded = true; // carry the one-time seed marker through
     if (raw._pairPreset) out._pairPreset = true; // ...и маркер «исходные пары уже покрашены»
     return out;
@@ -708,7 +712,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     seedChecked = false;
     pairPresetChecked = false;
     clearHistory();
-    state = { categories: clone(DEFAULT_STATE.categories), events: [], nameColors: {} };
+    state = { categories: clone(DEFAULT_STATE.categories), events: [], nameColors: {}, nameOrder: [] };
     render();
     renderCategoryOptions();
     renderCategoryList();
@@ -949,7 +953,13 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   function computeLayout() {
     var y = 0;
     var segments = computeSegments().map(function (seg) {
-      var h = seg.busy ? Math.max(MIN_CONTENT_HEIGHT, Math.round((seg.to - seg.from) * PX_PER_MIN)) : GAP_ROW_HEIGHT;
+      // Занятые участки масштабируются строго линейно — PX_PER_MIN на минуту,
+      // без округления и без нижнего порога. Поэтому внутри непрерывной занятой
+      // полосы любые два момента, разнесённые на одинаковое время, разнесены и
+      // по вертикали одинаково: линии-ориентиры на ровных часах равноудалены
+      // (ровно 60*PX_PER_MIN пикс. между соседними). Пустые промежутки, как и
+      // раньше, сжимаются до GAP_ROW_HEIGHT — линии по часам там не рисуются.
+      var h = seg.busy ? (seg.to - seg.from) * PX_PER_MIN : GAP_ROW_HEIGHT;
       var item = { from: seg.from, to: seg.to, busy: seg.busy, y: y, h: h };
       y += h;
       return item;
@@ -1271,8 +1281,15 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     var timeCol = document.createElement('div');
     timeCol.className = 'time-col';
     timeCol.style.height = heightPx + 'px';
+    // Занятые участки теперь масштабируются линейно, поэтому вплотную идущие
+    // границы (из-за наложения занятий) дают близкие y. Подпись пропускаем,
+    // если она встала бы почти на предыдущую — так гуттер не превращается в
+    // нечитаемую кашу из «15:05 · 15:10 · 15:20».
+    var lastLabelY = -Infinity;
     layout.segments.forEach(function (seg) {
       if (!seg.busy) return;
+      if (seg.y - lastLabelY < 12) return;
+      lastLabelY = seg.y;
       var label = document.createElement('div');
       label.className = 'time-label';
       label.style.top = seg.y + 'px';
@@ -1522,19 +1539,80 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     });
   }
 
+  // «Пара» — имя, покрашенное в серый (серый зарезервирован за парами, см.
+  // applyPairPreset). В списке «Цвета имён» такие имена уходят вниз.
+  function nameIsPair(key) {
+    return isGreyish(getNameColor(key));
+  }
+
+  // Порядок строк в списке «Цвета имён»: сперва то, что пользователь расставил
+  // вручную (state.nameOrder), затем — не попавшие туда имена по правилу
+  // «дела и обычные занятия сверху (по алфавиту), пары — снизу (по алфавиту)».
+  function orderedNameKeys() {
+    var seen = {};
+    var all = [];
+    state.events.forEach(function (ev) {
+      var key = nameKey(ev.title);
+      if (!seen[key]) { seen[key] = true; all.push(key); }
+    });
+    var explicit = (state.nameOrder || []).filter(function (k) { return seen[k]; });
+    var placed = {};
+    explicit.forEach(function (k) { placed[k] = true; });
+    var rest = all.filter(function (k) { return !placed[k]; }).sort(function (a, b) {
+      var pa = nameIsPair(a), pb = nameIsPair(b);
+      if (pa !== pb) return pa ? 1 : -1;
+      return a.localeCompare(b, 'ru');
+    });
+    return explicit.concat(rest);
+  }
+
+  var draggedNameKey = null;
+
+  function bindNameOrderDrag(handle, li) {
+    handle.addEventListener('dragstart', function (e) {
+      draggedNameKey = li.dataset.nameKey;
+      li.classList.add('dragging-row');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', draggedNameKey); } catch (_) { }
+      }
+    });
+    handle.addEventListener('dragend', function () {
+      draggedNameKey = null;
+      var list = document.getElementById('name-color-list');
+      if (list) list.querySelectorAll('li.dragging-row').forEach(function (n) { n.classList.remove('dragging-row'); });
+    });
+  }
+
+  function bindNameOrderDrop(li) {
+    li.addEventListener('dragover', function (e) {
+      if (draggedNameKey == null || li.dataset.nameKey === draggedNameKey) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      var list = li.parentNode;
+      var dragEl = list && list.querySelector('li.dragging-row');
+      if (!dragEl || dragEl === li) return;
+      var r = li.getBoundingClientRect();
+      var after = (e.clientY - r.top) > r.height / 2;
+      list.insertBefore(dragEl, after ? li.nextSibling : li);
+    });
+    li.addEventListener('drop', function (e) {
+      e.preventDefault();
+      var list = document.getElementById('name-color-list');
+      if (!list) return;
+      var order = Array.from(list.querySelectorAll('li[data-name-key]')).map(function (n) { return n.dataset.nameKey; });
+      commit(function () { state.nameOrder = order; });
+    });
+  }
+
   function renderNameColorList() {
     var list = document.getElementById('name-color-list');
     if (!list) return;
-    var seen = {};
-    var names = [];
-    state.events.forEach(function (ev) {
-      var key = nameKey(ev.title);
-      if (!seen[key]) { seen[key] = true; names.push(key); }
-    });
-    names.sort(function (a, b) { return a.localeCompare(b, 'ru'); });
+    var names = orderedNameKeys();
     list.innerHTML = '';
     names.forEach(function (name) {
       var li = document.createElement('li');
+      li.dataset.nameKey = name;
       li.addEventListener('mouseenter', function () { setHighlight(name); });
       li.addEventListener('mouseleave', function () { setHighlight(currentModalTitle()); });
       var label = document.createElement('span'); label.textContent = name;
@@ -1544,13 +1622,20 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
         swatch.style.background = getNameColor(name);
         li.append(swatch, label);
       } else {
+        var handle = document.createElement('span');
+        handle.className = 'drag-handle';
+        handle.textContent = '⠿';
+        handle.title = 'Перетащите, чтобы изменить порядок';
+        handle.draggable = true;
+        bindNameOrderDrag(handle, li);
+        bindNameOrderDrop(li);
         var picker = document.createElement('input');
         picker.type = 'color';
         picker.className = 'swatch-input';
         picker.value = toHex6(getNameColor(name));
         picker.title = 'Изменить цвет «' + name + '»';
         picker.addEventListener('change', function () { setNameColor(name, picker.value); });
-        li.append(picker, label);
+        li.append(handle, picker, label);
       }
       list.appendChild(li);
     });
@@ -1560,6 +1645,32 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       li.textContent = 'Пока нет занятий';
       list.appendChild(li);
     }
+  }
+
+  // Один раз вешаем обработчики на сам список: они принимают перетаскивание,
+  // отпущенное на пустом месте / ниже последней строки (точную позицию между
+  // строками ловят обработчики на самих <li>, см. bindNameOrderDrop).
+  function bindNameOrderList() {
+    var list = document.getElementById('name-color-list');
+    if (!list) return;
+    list.addEventListener('dragover', function (e) {
+      if (draggedNameKey == null) return;
+      e.preventDefault();
+      var dragEl = list.querySelector('li.dragging-row');
+      if (!dragEl) return;
+      var lis = Array.prototype.slice.call(list.querySelectorAll('li[data-name-key]'));
+      var last = lis[lis.length - 1];
+      if (last && last !== dragEl && e.clientY > last.getBoundingClientRect().bottom) {
+        list.appendChild(dragEl);
+      }
+    });
+    list.addEventListener('drop', function (e) {
+      if (draggedNameKey == null) return;
+      e.preventDefault();
+      var order = Array.prototype.slice.call(list.querySelectorAll('li[data-name-key]'))
+        .map(function (n) { return n.dataset.nameKey; });
+      commit(function () { state.nameOrder = order; });
+    });
   }
 
   function deleteCategory(id) {
@@ -1892,6 +2003,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     bindSidebarBackdrop();
     bindDayTabs();
     bindViewTabs();
+    bindNameOrderList();
     bindSelectionBar();
     bindSelectionKeys();
 

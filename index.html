@@ -248,6 +248,19 @@
   .category-list .cat-del { border: none; background: none; color: var(--muted); padding: 0 4px; font-size: 15px; }
   .category-list .cat-del:hover { color: var(--warn); }
 
+  /* «Цвета имён»: строку можно перетаскивать за точечную ручку, меняя порядок. */
+  #name-color-list li.dragging-row { opacity: .4; }
+  #name-color-list .drag-handle {
+    flex: none;
+    cursor: grab;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1;
+    letter-spacing: -1px;
+    user-select: none;
+  }
+  #name-color-list .drag-handle:active { cursor: grabbing; }
+
   .grid-wrap { flex: 1; overflow: hidden; position: relative; display: flex; flex-direction: column; }
   .grid-scroll { flex: 1; overflow: auto; }
   .schedule-grid { display: inline-block; min-width: 100%; }
