@@ -196,49 +196,57 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   }
 
   // ── Подсветка одноимённых занятий ────────────────────────────────────────
-  // Пока открыта карточка занятия или курсор наведён на строку во «Цветах
-  // имён», все блоки/строки кроме таких же (то же имя и цвет) затемняются, а
-  // одноимённые чуть увеличиваются. highlightKey — nameKey подсвечиваемого
-  // имени либо null. Наведение и открытая карточка не конфликтуют: при уходе
-  // курсора подсветка возвращается к имени из карточки (currentModalTitle).
-  var highlightKey = null;
+  // Пока открыта карточка занятия, выделено хотя бы одно занятие в «Ленте
+  // времени» (видно мини-меню действий) или курсор наведён на строку во
+  // «Цветах имён» — все блоки/строки кроме таких же (то же имя и цвет)
+  // затемняются, а одноимённые чуть увеличиваются. highlightKeys — набор
+  // nameKey подсвечиваемых имён. Приоритет: наведение курсора → выделение /
+  // открытая карточка → ничего (см. baseHighlightKeys / restoreHighlight).
+  var highlightKeys = [];
+  var hoverName = null;
 
   function applyHighlight() {
+    var keySet = {};
+    highlightKeys.forEach(function (k) { keySet[k] = true; });
+    var active = highlightKeys.length > 0;
+
     if (gridEl) {
-      if (highlightKey == null) {
-        gridEl.classList.remove('highlight-active');
-        gridEl.querySelectorAll('.event.hl-match').forEach(function (el) { el.classList.remove('hl-match'); });
-      } else {
-        gridEl.classList.add('highlight-active');
-        gridEl.querySelectorAll('.event').forEach(function (el) {
-          var ev = state.events.find(function (e) { return e.id === el.dataset.id; });
-          el.classList.toggle('hl-match', !!ev && nameKey(ev.title) === highlightKey);
-        });
-      }
+      gridEl.classList.toggle('highlight-active', active);
+      gridEl.querySelectorAll('.event').forEach(function (el) {
+        var ev = state.events.find(function (e) { return e.id === el.dataset.id; });
+        el.classList.toggle('hl-match', !!ev && !!keySet[nameKey(ev.title)]);
+      });
     }
     var mt = document.getElementById('matrix-table');
     if (mt) {
-      if (highlightKey == null) {
-        mt.classList.remove('highlight-active');
-        mt.querySelectorAll('tr.hl-match-row').forEach(function (tr) { tr.classList.remove('hl-match-row'); });
-      } else {
-        mt.classList.add('highlight-active');
-        mt.querySelectorAll('tbody tr').forEach(function (tr) {
-          tr.classList.toggle('hl-match-row', nameKey(tr.dataset.name || '') === highlightKey);
-        });
-      }
+      mt.classList.toggle('highlight-active', active);
+      mt.querySelectorAll('tbody tr').forEach(function (tr) {
+        tr.classList.toggle('hl-match-row', !!keySet[nameKey(tr.dataset.name || '')]);
+      });
     }
   }
 
-  function setHighlight(title) {
-    highlightKey = (title == null || title === '') ? null : nameKey(title);
+  function setHighlightKeys(titles) {
+    highlightKeys = (titles || [])
+      .filter(function (t) { return t != null && t !== ''; })
+      .map(nameKey);
     applyHighlight();
   }
 
-  function currentModalTitle() {
-    if (!editingId) return null;
-    var ev = state.events.find(function (x) { return x.id === editingId; });
-    return ev ? ev.title : null;
+  // Что подсвечивать, когда курсор никуда не наведён: имя из открытой карточки,
+  // иначе имена всех выделённых занятий, иначе — ничего.
+  function baseHighlightTitles() {
+    if (editingId) {
+      var ev = state.events.find(function (x) { return x.id === editingId; });
+      return ev ? [ev.title] : [];
+    }
+    if (selectedIds.size) return selectedEvents().map(function (e) { return e.title; });
+    return [];
+  }
+
+  function restoreHighlight() {
+    if (hoverName != null) setHighlightKeys([hoverName]);
+    else setHighlightKeys(baseHighlightTitles());
   }
 
   function escapeHtml(str) {
@@ -1013,7 +1021,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     renderDayTabs();
     renderMatrix();
     renderSelectionPanel();
-    applyHighlight();
+    restoreHighlight();
   }
 
   // Second format: rows are names/task titles, columns are the seven weekdays,
@@ -1613,8 +1621,8 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     names.forEach(function (name) {
       var li = document.createElement('li');
       li.dataset.nameKey = name;
-      li.addEventListener('mouseenter', function () { setHighlight(name); });
-      li.addEventListener('mouseleave', function () { setHighlight(currentModalTitle()); });
+      li.addEventListener('mouseenter', function () { hoverName = name; restoreHighlight(); });
+      li.addEventListener('mouseleave', function () { hoverName = null; restoreHighlight(); });
       var label = document.createElement('span'); label.textContent = name;
       if (isReadOnly) {
         var swatch = document.createElement('span');
@@ -1797,12 +1805,12 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     document.getElementById('edit-backdrop').classList.add('open');
     document.getElementById('edit-form').querySelectorAll('input,select,textarea,button').forEach(function (el) { el.disabled = isReadOnly; });
     document.getElementById('e-cancel').disabled = false;
-    setHighlight(ev.title);
+    restoreHighlight();
   }
   function closeEditModal() {
     editingId = null;
     document.getElementById('edit-backdrop').classList.remove('open');
-    setHighlight(null);
+    restoreHighlight();
   }
 
   // ── Выделение занятий и групповые действия ────────────────────────────────
@@ -1839,12 +1847,14 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     refreshSelectionUI();
   }
 
-  // Обновить только рамку выделения и боковую панель, без полного re-render.
+  // Обновить только рамку выделения, боковую панель и подсветку одноимённых
+  // занятий, без полного re-render.
   function refreshSelectionUI() {
     gridEl.querySelectorAll('.event').forEach(function (el) {
       el.classList.toggle('selected', selectedIds.has(el.dataset.id));
     });
     renderSelectionPanel();
+    restoreHighlight();
   }
 
   function selectedEvents() {
