@@ -371,18 +371,24 @@
   .event.readonly { cursor: default; }
   .event.selected { outline: 2px solid var(--accent); outline-offset: 2px; z-index: 16; }
 
-  /* Панель групповых действий: узкая горизонтальная полоса над расписанием,
-     видна, пока выбрано хотя бы одно занятие. Лежит в потоке (не поверх
-     таблицы) — сетка ниже просто сжимается, ничего не перекрывается. */
+  /* Панель групповых действий: узкая горизонтальная полоса, видна, пока
+     выбрано хотя бы одно занятие. Всплывает поверх элементов интерфейса
+     над расписанием (вкладки форматов / дней), не сдвигая саму сетку вниз. */
   .selection-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
     background: var(--surface-alt);
     border-bottom: 2px solid var(--accent);
-    flex: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,.18);
+    overflow-x: auto;
   }
   .selection-bar[hidden] { display: none; }
   .selection-bar .sel-count { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-right: 2px; }
@@ -619,7 +625,7 @@
     .grid-wrap.matrix-view .mx-hint { display: none; }
     .tl-hint { display: none !important; }
 
-    .selection-bar { gap: 6px; }
+    .selection-bar { gap: 6px; flex-wrap: wrap; }
     .selection-bar button { flex: 1 1 40%; }
     .selection-bar #sel-clear { margin-left: 0; }
     .selection-bar .sel-count { flex-basis: 100%; }
