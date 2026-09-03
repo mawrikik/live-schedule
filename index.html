@@ -312,7 +312,20 @@
     user-select: none;
     /* Чуть прозрачные, чтобы линии-ориентиры по часам просвечивали сквозь блок. */
     opacity: .9;
+    transition: opacity .16s ease, transform .16s ease;
   }
+
+  /* Подсветка «таких же» занятий: пока открыта карточка занятия или курсор
+     наведён на имя/цвет во «Цветах имён», все блоки кроме одноимённых (то же
+     имя и цвет) тускнеют, а одноимённые чуть подрастают. */
+  .schedule-grid.highlight-active .event { opacity: .26; }
+  .schedule-grid.highlight-active .event.cancelled { opacity: .1; }
+  .schedule-grid.highlight-active .event.hl-match {
+    opacity: 1;
+    transform: scale(1.05);
+    z-index: 17;
+  }
+  .schedule-grid.highlight-active .event.hl-match.cancelled { opacity: .4; }
   /* Дела (не занятия) выглядят подчёркнуто иначе, чем занятия: пунктирная
      окаёмка по всему периметру, широкая пунктирная левая грань, скруглённее
      углы и лёгкая диагональная штриховка поверх цвета имени. */
@@ -493,6 +506,21 @@
   .mx-note { color: var(--muted); font-size: 11px; font-style: italic; white-space: normal; text-align: left; }
   .mx-entry.other-type .mx-time { color: var(--warn); font-style: italic; }
   .mx-entry.cancelled { opacity: .3; }
+
+  /* Та же подсветка одноимённых строк в «Таблице» (см. .schedule-grid.highlight-active). */
+  .matrix-table.highlight-active tbody tr td,
+  .matrix-table.highlight-active tbody tr th.mx-name {
+    opacity: .32;
+    transition: opacity .16s ease;
+  }
+  .matrix-table.highlight-active tbody tr.hl-match-row td,
+  .matrix-table.highlight-active tbody tr.hl-match-row th.mx-name { opacity: 1; }
+  .matrix-table.highlight-active tbody tr.hl-match-row .mx-name-text,
+  .matrix-table.highlight-active tbody tr.hl-match-row .mx-entry {
+    display: inline-block;
+    transform: scale(1.05);
+    transition: transform .16s ease;
+  }
 
   .mx-input {
     width: 100%;

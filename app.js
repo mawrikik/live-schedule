@@ -194,6 +194,52 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     });
   }
 
+  // ── Подсветка одноимённых занятий ────────────────────────────────────────
+  // Пока открыта карточка занятия или курсор наведён на строку во «Цветах
+  // имён», все блоки/строки кроме таких же (то же имя и цвет) затемняются, а
+  // одноимённые чуть увеличиваются. highlightKey — nameKey подсвечиваемого
+  // имени либо null. Наведение и открытая карточка не конфликтуют: при уходе
+  // курсора подсветка возвращается к имени из карточки (currentModalTitle).
+  var highlightKey = null;
+
+  function applyHighlight() {
+    if (gridEl) {
+      if (highlightKey == null) {
+        gridEl.classList.remove('highlight-active');
+        gridEl.querySelectorAll('.event.hl-match').forEach(function (el) { el.classList.remove('hl-match'); });
+      } else {
+        gridEl.classList.add('highlight-active');
+        gridEl.querySelectorAll('.event').forEach(function (el) {
+          var ev = state.events.find(function (e) { return e.id === el.dataset.id; });
+          el.classList.toggle('hl-match', !!ev && nameKey(ev.title) === highlightKey);
+        });
+      }
+    }
+    var mt = document.getElementById('matrix-table');
+    if (mt) {
+      if (highlightKey == null) {
+        mt.classList.remove('highlight-active');
+        mt.querySelectorAll('tr.hl-match-row').forEach(function (tr) { tr.classList.remove('hl-match-row'); });
+      } else {
+        mt.classList.add('highlight-active');
+        mt.querySelectorAll('tbody tr').forEach(function (tr) {
+          tr.classList.toggle('hl-match-row', nameKey(tr.dataset.name || '') === highlightKey);
+        });
+      }
+    }
+  }
+
+  function setHighlight(title) {
+    highlightKey = (title == null || title === '') ? null : nameKey(title);
+    applyHighlight();
+  }
+
+  function currentModalTitle() {
+    if (!editingId) return null;
+    var ev = state.events.find(function (x) { return x.id === editingId; });
+    return ev ? ev.title : null;
+  }
+
   function escapeHtml(str) {
     return str.replace(/[&<>"']/g, function (ch) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
@@ -957,6 +1003,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     renderDayTabs();
     renderMatrix();
     renderSelectionPanel();
+    applyHighlight();
   }
 
   // Second format: rows are names/task titles, columns are the seven weekdays,
@@ -1488,6 +1535,8 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     list.innerHTML = '';
     names.forEach(function (name) {
       var li = document.createElement('li');
+      li.addEventListener('mouseenter', function () { setHighlight(name); });
+      li.addEventListener('mouseleave', function () { setHighlight(currentModalTitle()); });
       var label = document.createElement('span'); label.textContent = name;
       if (isReadOnly) {
         var swatch = document.createElement('span');
@@ -1637,10 +1686,12 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     document.getElementById('edit-backdrop').classList.add('open');
     document.getElementById('edit-form').querySelectorAll('input,select,textarea,button').forEach(function (el) { el.disabled = isReadOnly; });
     document.getElementById('e-cancel').disabled = false;
+    setHighlight(ev.title);
   }
   function closeEditModal() {
     editingId = null;
     document.getElementById('edit-backdrop').classList.remove('open');
+    setHighlight(null);
   }
 
   // ── Выделение занятий и групповые действия ────────────────────────────────
