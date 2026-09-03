@@ -371,28 +371,24 @@
   .event.readonly { cursor: default; }
   .event.selected { outline: 2px solid var(--accent); outline-offset: 2px; z-index: 16; }
 
-  /* Плавающая панель групповых действий: видна, пока выбрано хотя бы одно
-     занятие. Сидит сбоку и не перехватывает клики по остальной таблице. */
+  /* Панель групповых действий: узкая горизонтальная полоса над расписанием,
+     видна, пока выбрано хотя бы одно занятие. Лежит в потоке (не поверх
+     таблицы) — сетка ниже просто сжимается, ничего не перекрывается. */
   .selection-bar {
-    position: fixed;
-    right: 16px;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 45;
     display: flex;
-    flex-direction: column;
-    gap: 6px;
-    width: 178px;
-    padding: 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    box-shadow: 0 8px 30px rgba(0,0,0,.22);
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface-alt);
+    border-bottom: 2px solid var(--accent);
+    flex: none;
   }
   .selection-bar[hidden] { display: none; }
-  .selection-bar .sel-count { font-size: 12.5px; color: var(--muted); text-align: center; margin-bottom: 2px; }
-  .selection-bar button { width: 100%; padding: 7px 10px; font-size: 12.5px; }
+  .selection-bar .sel-count { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-right: 2px; }
+  .selection-bar button { width: auto; padding: 6px 12px; font-size: 12.5px; }
   .selection-bar button[hidden] { display: none; }
+  .selection-bar #sel-clear { margin-left: auto; }
 
   .modal-backdrop {
     display: none; position: fixed; inset: 0;
@@ -623,13 +619,10 @@
     .grid-wrap.matrix-view .mx-hint { display: none; }
     .tl-hint { display: none !important; }
 
-    .selection-bar {
-      right: 8px; left: 8px; top: auto; bottom: 8px;
-      transform: none; width: auto;
-      flex-direction: row; flex-wrap: wrap; justify-content: center;
-    }
-    .selection-bar button { width: auto; flex: 1 1 42%; }
-    .selection-bar .sel-count { flex-basis: 100%; margin-bottom: 0; }
+    .selection-bar { gap: 6px; }
+    .selection-bar button { flex: 1 1 40%; }
+    .selection-bar #sel-clear { margin-left: 0; }
+    .selection-bar .sel-count { flex-basis: 100%; }
 
     .modal { width: min(92vw, 340px); }
   }
@@ -734,6 +727,14 @@
         <span class="tl-hint">Клик — выделить занятие, двойной клик — открыть карточку</span>
       </div>
       <div class="day-tabs" id="day-tabs"></div>
+      <div id="selection-bar" class="selection-bar" hidden="">
+        <span class="sel-count">Выбрано: <b id="sel-count-n">0</b></span>
+        <button type="button" id="sel-edit" class="btn-secondary">Изменить</button>
+        <button type="button" id="sel-cat" class="btn-secondary">Сделать делом</button>
+        <button type="button" id="sel-cancelled" class="btn-secondary">Отметить отменённым</button>
+        <button type="button" id="sel-delete" class="btn-danger">Удалить (Del)</button>
+        <button type="button" id="sel-clear" class="btn-secondary">Снять выделение</button>
+      </div>
       <div class="grid-scroll" id="grid-scroll">
         <div class="schedule-grid" id="schedule-grid"></div>
       </div>
@@ -743,14 +744,6 @@
     </main>
 
   </div>
-</div>
-<div id="selection-bar" class="selection-bar" hidden="">
-  <span class="sel-count">Выбрано: <b id="sel-count-n">0</b></span>
-  <button type="button" id="sel-edit" class="btn-secondary">Изменить</button>
-  <button type="button" id="sel-cat" class="btn-secondary">Сделать делом</button>
-  <button type="button" id="sel-cancelled" class="btn-secondary">Отметить отменённым</button>
-  <button type="button" id="sel-delete" class="btn-danger">Удалить (Del)</button>
-  <button type="button" id="sel-clear" class="btn-secondary">Снять выделение</button>
 </div>
 <div class="modal-backdrop" id="edit-backdrop">
   <div class="modal">
