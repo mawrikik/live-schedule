@@ -1526,19 +1526,61 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     el.style.width = 'calc(' + width + '% - 4px)';
   }
 
+  // На тач-устройствах жест «взять ячейку» (перетащить / растянуть) включается
+  // только после короткого удержания пальца на месте (~380 мс). Пока жест не
+  // «взведён», любое заметное смещение пальца или прокрутка страницы его
+  // отменяют — поэтому свайп по ячейке при листании остаётся обычной
+  // прокруткой. Мышь и перо работают сразу, как раньше.
+  var GESTURE_HOLD_MS = 380;
+  var GESTURE_HOLD_SLOP = 8;
+
+  function armPointerGesture(e, onArm, onCancel) {
+    if (e.pointerType !== 'touch') { e.preventDefault(); onArm(); return; }
+    var sx = e.clientX, sy = e.clientY, pid = e.pointerId, settled = false, timer = null;
+    function tearDown() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      window.removeEventListener('pointermove', preMove, true);
+      window.removeEventListener('pointerup', preEnd, true);
+      window.removeEventListener('pointercancel', preEnd, true);
+      window.removeEventListener('scroll', preScroll, true);
+    }
+    function settle(armed, reason) {
+      if (settled) return;
+      settled = true;
+      tearDown();
+      if (armed) {
+        if (navigator.vibrate) { try { navigator.vibrate(12); } catch (x) {} }
+        onArm();
+      } else if (onCancel) {
+        onCancel(reason);
+      }
+    }
+    function preMove(e2) {
+      if (e2.pointerId !== pid) return;
+      if (Math.abs(e2.clientX - sx) > GESTURE_HOLD_SLOP || Math.abs(e2.clientY - sy) > GESTURE_HOLD_SLOP) settle(false, 'scroll');
+    }
+    function preEnd(e2) {
+      if (e2.pointerId !== pid) return;
+      settle(false, e2.type === 'pointerup' ? 'tap' : 'cancel');
+    }
+    function preScroll() { settle(false, 'scroll'); }
+    timer = setTimeout(function () { settle(true); }, GESTURE_HOLD_MS);
+    window.addEventListener('pointermove', preMove, true);
+    window.addEventListener('pointerup', preEnd, true);
+    window.addEventListener('pointercancel', preEnd, true);
+    window.addEventListener('scroll', preScroll, true);
+  }
+
   function makeDraggable(el, ev) {
     el.addEventListener('pointerdown', function (e) {
       if (isReadOnly || e.target.classList.contains('resize-handle')) return;
-      e.preventDefault();
-      el.setPointerCapture(e.pointerId);
-      beginInteraction();
-
-      var frozen = currentLayout;
-      var duration = ev.end - ev.start;
+      var pid = e.pointerId;
       var startX = e.clientX, startY = e.clientY, moved = false;
+      var frozen = null, duration = 0;
       var previewDay = ev.day, previewStart = ev.start;
 
       function onMove(e2) {
+        if (e2.cancelable) e2.preventDefault();   // жест взведён — держим страницу от прокрутки
         var dx = e2.clientX - startX, dy = e2.clientY - startY;
         if (!moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) moved = true;
         if (!moved) return;
@@ -1559,10 +1601,12 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
         el.style.width = 'calc(100% - 4px)';
       }
       function onUp(e2) {
-        el.releasePointerCapture(e2.pointerId);
+        try { el.releasePointerCapture(pid); } catch (x) {}
         el.removeEventListener('pointermove', onMove);
         el.removeEventListener('pointerup', onUp);
+        el.removeEventListener('pointercancel', onUp);
         el.classList.remove('dragging');
+        el.style.touchAction = '';
         if (moved) {
           commit(function () { ev.day = previewDay; ev.start = previewStart; ev.end = previewStart + duration; });
         } else {
@@ -1570,8 +1614,21 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
         }
         endInteraction();
       }
-      el.addEventListener('pointermove', onMove);
-      el.addEventListener('pointerup', onUp);
+
+      armPointerGesture(e, function () {
+        try { el.setPointerCapture(pid); } catch (x) {}
+        el.style.touchAction = 'none';
+        beginInteraction();
+        frozen = currentLayout;
+        duration = ev.end - ev.start;
+        el.addEventListener('pointermove', onMove);
+        el.addEventListener('pointerup', onUp);
+        el.addEventListener('pointercancel', onUp);
+      }, function (reason) {
+        // Короткий тап (без удержания) — выделить занятие, как и раньше.
+        // Свайп / прокрутка — ничего не делаем, страница просто пролистнулась.
+        if (reason === 'tap') handleEventClick(ev, e);
+      });
     });
   }
 
@@ -1580,15 +1637,13 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       handle.addEventListener('pointerdown', function (e) {
         if (isReadOnly) return;
         e.stopPropagation();
-        e.preventDefault();
-        handle.setPointerCapture(e.pointerId);
-        beginInteraction();
-        var frozen = currentLayout;
-        var startY = e.clientY, origStart = ev.start, origEnd = ev.end;
-        var originY = minutesToY(frozen, edge === 'top' ? origStart : origEnd);
-        var pendingStart = origStart, pendingEnd = origEnd;
+        var pid = e.pointerId;
+        var frozen = null, startY = e.clientY, origStart = ev.start, origEnd = ev.end;
+        var originY = 0, pendingStart = origStart, pendingEnd = origEnd, moved = false;
 
         function onMove(e2) {
+          moved = true;
+          if (e2.cancelable) e2.preventDefault();
           var rawMinutes = yToMinutes(frozen, originY + (e2.clientY - startY));
           if (edge === 'top') {
             pendingStart = clamp(snap(rawMinutes), DAY_START, origEnd - MIN_DURATION);
@@ -1601,14 +1656,25 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
           el.style.height = Math.max(MIN_CONTENT_HEIGHT, bottom - top) + 'px';
         }
         function onUp(e2) {
-          handle.releasePointerCapture(e2.pointerId);
+          try { handle.releasePointerCapture(pid); } catch (x) {}
           handle.removeEventListener('pointermove', onMove);
           handle.removeEventListener('pointerup', onUp);
-          commit(function () { ev.start = pendingStart; ev.end = pendingEnd; });
+          handle.removeEventListener('pointercancel', onUp);
+          handle.style.touchAction = '';
+          if (moved) commit(function () { ev.start = pendingStart; ev.end = pendingEnd; });
           endInteraction();
         }
-        handle.addEventListener('pointermove', onMove);
-        handle.addEventListener('pointerup', onUp);
+
+        armPointerGesture(e, function () {
+          try { handle.setPointerCapture(pid); } catch (x) {}
+          handle.style.touchAction = 'none';
+          beginInteraction();
+          frozen = currentLayout;
+          originY = minutesToY(frozen, edge === 'top' ? origStart : origEnd);
+          handle.addEventListener('pointermove', onMove);
+          handle.addEventListener('pointerup', onUp);
+          handle.addEventListener('pointercancel', onUp);
+        });
       });
     }
     bind(handleTop, 'top');
