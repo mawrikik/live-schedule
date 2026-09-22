@@ -395,7 +395,10 @@
   .event .resize-handle { position: absolute; left: 0; right: 0; height: 6px; cursor: ns-resize; }
   .event .resize-handle.top { top: 0; }
   .event .resize-handle.bottom { bottom: 0; }
-  .event.dragging { opacity: .85; z-index: 20; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+  /* transition: none — иначе .16s transform-transition сглаживает (запаздывает
+     за) каждое перемещение мыши/пальца, и блок «плывёт» вместо того, чтобы
+     точно следовать за курсором. */
+  .event.dragging { opacity: .85; z-index: 20; box-shadow: 0 4px 14px rgba(0,0,0,.3); transition: none; }
   .event.readonly { cursor: default; }
   .event.selected { outline: 2px solid var(--accent); outline-offset: 2px; z-index: 16; }
 

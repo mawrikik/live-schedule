@@ -1576,29 +1576,30 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       if (isReadOnly || e.target.classList.contains('resize-handle')) return;
       var pid = e.pointerId;
       var startX = e.clientX, startY = e.clientY, moved = false;
-      var frozen = null, duration = 0;
+      var frozen = null, duration = 0, originY = 0;
       var previewDay = ev.day, previewStart = ev.start;
 
+      // Пока кнопка/палец зажаты, блок просто едет за курсором «как есть»
+      // (transform на сырые пиксели dx/dy) — без переноса в DOM соседнего дня
+      // и без пересчёта top/height на лету через нелинейную раскладку ленты
+      // (сжатые пустые промежутки). Именно эти две вещи раньше «спотыкали»
+      // перетаскивание на границах дня/времени. День и время примагничиваются
+      // один раз — при отпускании.
       function onMove(e2) {
         if (e2.cancelable) e2.preventDefault();   // жест взведён — держим страницу от прокрутки
         var dx = e2.clientX - startX, dy = e2.clientY - startY;
-        if (!moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) moved = true;
-        if (!moved) return;
-        el.classList.add('dragging');
-        var originY = minutesToY(frozen, ev.start);
-        var rawStart = yToMinutes(frozen, originY + dy);
-        previewStart = clamp(snap(rawStart), DAY_START, DAY_END - duration);
-        var targetCol = dayColAtPoint(e2.clientX);
-        if (targetCol) {
-          previewDay = Number(targetCol.dataset.day);
-          if (targetCol !== el.parentElement) targetCol.appendChild(el);
+        if (!moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+          moved = true;
+          el.classList.add('dragging');
+          el.style.left = '2px';
+          el.style.width = 'calc(100% - 4px)';
         }
-        var top = minutesToY(frozen, previewStart);
-        var bottom = minutesToY(frozen, previewStart + duration);
-        el.style.top = top + 'px';
-        el.style.height = Math.max(MIN_CONTENT_HEIGHT, bottom - top) + 'px';
-        el.style.left = '2px';
-        el.style.width = 'calc(100% - 4px)';
+        if (!moved) return;
+        el.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
+
+        previewStart = clamp(snap(yToMinutes(frozen, originY + dy)), DAY_START, DAY_END - duration);
+        var targetCol = dayColAtPoint(e2.clientX);
+        if (targetCol) previewDay = Number(targetCol.dataset.day);
       }
       function onUp(e2) {
         try { el.releasePointerCapture(pid); } catch (x) {}
@@ -1607,6 +1608,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
         el.removeEventListener('pointercancel', onUp);
         el.classList.remove('dragging');
         el.style.touchAction = '';
+        el.style.transform = '';
         if (moved) {
           commit(function () { ev.day = previewDay; ev.start = previewStart; ev.end = previewStart + duration; });
         } else {
@@ -1621,6 +1623,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
         beginInteraction();
         frozen = currentLayout;
         duration = ev.end - ev.start;
+        originY = minutesToY(frozen, ev.start);
         el.addEventListener('pointermove', onMove);
         el.addEventListener('pointerup', onUp);
         el.addEventListener('pointercancel', onUp);
