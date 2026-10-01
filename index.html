@@ -68,6 +68,16 @@
   html, body {
     margin: 0;
     height: 100%;
+    /* Жёстко запрещаем самому документу прокручиваться/«пружинить»
+       (iOS rubber-band bounce, Android pull-to-refresh glow) — это
+       происходило в обход #grid-scroll, поэтому overflow:hidden только на
+       внутренних контейнерах (#app-shell и т.д.) его не ловил. Единственная
+       прокручиваемая область — #grid-scroll (плюс внутренние overflow:auto
+       панели вроде .sidebar) — у них своя, не затронутая логика. */
+    overflow: hidden;
+    overscroll-behavior: none;
+    position: fixed;
+    inset: 0;
     background: var(--bg);
     color: var(--text);
     font-family: "IBM Plex Sans", Arial, sans-serif;
@@ -120,6 +130,7 @@
     padding: 18px;
     overflow-y: auto;
     overflow-x: hidden;
+    overscroll-behavior: contain;
     transition: width .2s ease, padding .2s ease;
     /* Полосу прокрутки выносим к левому краю панели: контейнер в rtl,
        содержимое возвращаем в ltr. */
@@ -292,7 +303,7 @@
   #name-color-list .nc-row[hidden] { display: none; }
 
   .grid-wrap { flex: 1; overflow: hidden; position: relative; display: flex; flex-direction: column; }
-  .grid-scroll { flex: 1; overflow: auto; }
+  .grid-scroll { flex: 1; overflow: auto; overscroll-behavior: contain; }
   .schedule-grid { display: inline-block; min-width: 100%; }
 
   .grid-header {
@@ -497,7 +508,7 @@
   /* Второй формат: строки — имена/названия дел, столбцы — дни недели,
      в ячейках — время (только начало, если занятие длится ровно час,
      иначе «начало-конец»). Те же данные, что и в ленте времени. */
-  .matrix-scroll { display: none; flex: 1; overflow: auto; }
+  .matrix-scroll { display: none; flex: 1; overflow: auto; overscroll-behavior: contain; }
   .grid-wrap.matrix-view .grid-scroll { display: none; }
   .grid-wrap.matrix-view .day-tabs { display: none !important; }
   .grid-wrap.matrix-view .matrix-scroll { display: block; }
