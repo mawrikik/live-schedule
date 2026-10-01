@@ -262,6 +262,8 @@
     line-height: 1;
     letter-spacing: -1px;
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
   #name-color-list .drag-handle:active { cursor: grabbing; }
 
@@ -351,6 +353,10 @@
     cursor: grab;
     box-shadow: var(--shadow);
     user-select: none;
+    -webkit-user-select: none;
+    /* Без этого на iOS долгое нажатие (взвод перетаскивания) всё равно
+       поднимало лупу выделения текста/меню «Копировать» поверх ячейки. */
+    -webkit-touch-callout: none;
     /* Чуть прозрачные, чтобы линии-ориентиры по часам просвечивали сквозь блок. */
     opacity: .9;
     transition: opacity .16s ease, transform .16s ease;
@@ -556,6 +562,8 @@
     font-size: 12px; line-height: 1; letter-spacing: -1px;
     vertical-align: middle;
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
   .matrix-table .mx-drag-handle:active { cursor: grabbing; }
   .matrix-table tr.mx-dragging { opacity: .4; }
