@@ -96,6 +96,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
 
   var gridEl = document.getElementById('schedule-grid');
+  var gridScrollEl = document.getElementById('grid-scroll');
   // Live state starts EMPTY (only the base categories, so the <select>s work).
   // Nothing is shown or written until the first onValue() snapshot arrives —
   // this is what prevents DEFAULT_STATE from ever overwriting real data.
@@ -126,6 +127,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
   var syncTimer = null;
   var isInteracting = false;  // a drag/resize gesture is in progress
   var pendingRemote = null;   // remote snapshot received mid-gesture, applied on release
+  var gridScrollLocked = false; // #grid-scroll is forced overflow:hidden for the duration of a drag/resize
 
   function uid() {
     return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
@@ -652,9 +654,36 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     return out;
   }
 
-  function beginInteraction() { isInteracting = true; }
+  // На время любого перетаскивания/растягивания жёстко блокируем прокрутку
+  // #grid-scroll через overflow:hidden — в отличие от touch-action/preventDefault,
+  // это не зависит от того, что браузер уже «решил» насчёт текущего тач-жеста
+  // (ни touch-action, ни preventDefault() не гарантируют эффект, если применить
+  // их не в самый момент touchstart), а действует немедленно и безусловно.
+  // Пока блокировка активна, scrollTop/scrollLeft всё ещё можно двигать из
+  // JS — этим пользуется автопрокрутка у края экрана в makeDraggable.
+  function beginInteraction() {
+    isInteracting = true;
+    if (gridScrollEl && !gridScrollLocked) {
+      gridScrollLocked = true;
+      var top = gridScrollEl.scrollTop, left = gridScrollEl.scrollLeft;
+      gridScrollEl.style.overflow = 'hidden';
+      // Подстраховка: на части старых движков смена overflow сбрасывает scroll-позицию.
+      gridScrollEl.scrollTop = top;
+      gridScrollEl.scrollLeft = left;
+    }
+  }
   function endInteraction() {
     isInteracting = false;
+    if (gridScrollEl && gridScrollLocked) {
+      gridScrollLocked = false;
+      // Сохраняем ТЕКУЩУЮ позицию (не ту, что была до начала жеста) — если во
+      // время перетаскивания сработала автопрокрутка к краю, страница должна
+      // остаться там, а не прыгать обратно.
+      var top = gridScrollEl.scrollTop, left = gridScrollEl.scrollLeft;
+      gridScrollEl.style.overflow = '';
+      gridScrollEl.scrollTop = top;
+      gridScrollEl.scrollLeft = left;
+    }
     if (pendingRemote != null && !pendingWrite && !syncTimer) {
       var raw = pendingRemote;
       pendingRemote = null;
@@ -1571,6 +1600,17 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
     window.addEventListener('scroll', preScroll, true);
   }
 
+  // Автопрокрутка у края во время перетаскивания: если поднести занятие к
+  // краю #grid-scroll, тот медленно едет в эту сторону, пока палец/курсор
+  // там и удерживается. EDGE_ZONE — ширина полосы у края, где это включается;
+  // скорость нарастает линейно от 0 на границе зоны до EDGE_MAX_SPEED впритык
+  // к краю (px за кадр).
+  var EDGE_ZONE = 56;
+  var EDGE_MAX_SPEED = 7;
+  function edgeScrollSpeed(distanceIntoZone) {
+    return clamp(distanceIntoZone / EDGE_ZONE, 0, 1) * EDGE_MAX_SPEED;
+  }
+
   function makeDraggable(el, ev) {
     el.addEventListener('pointerdown', function (e) {
       if (isReadOnly || e.target.classList.contains('resize-handle')) return;
@@ -1578,6 +1618,13 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       var startX = e.clientX, startY = e.clientY, moved = false;
       var frozen = null, duration = 0, originY = 0;
       var previewDay = ev.day, previewStart = ev.start;
+      // Текущая позиция указателя (обновляется в onMove) и накопленная
+      // поправка от автопрокрутки у края — её прибавляем к «сырому» dx/dy,
+      // иначе блок визуально «уезжал» бы от пальца по мере прокрутки
+      // содержимого под ним.
+      var lastClientX = startX, lastClientY = startY;
+      var scrollCompX = 0, scrollCompY = 0;
+      var edgeScrollRAF = null;
 
       // Пока кнопка/палец зажаты, блок просто едет за курсором «как есть»
       // (transform на сырые пиксели dx/dy) — без переноса в DOM соседнего дня
@@ -1585,23 +1632,61 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       // (сжатые пустые промежутки). Именно эти две вещи раньше «спотыкали»
       // перетаскивание на границах дня/времени. День и время примагничиваются
       // один раз — при отпускании.
+      function applyDragVisual() {
+        var dx = (lastClientX - startX) + scrollCompX;
+        var dy = (lastClientY - startY) + scrollCompY;
+        el.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
+
+        previewStart = clamp(snap(yToMinutes(frozen, originY + dy)), DAY_START, DAY_END - duration);
+        var targetCol = dayColAtPoint(lastClientX);
+        if (targetCol) previewDay = Number(targetCol.dataset.day);
+      }
+
+      function stopEdgeAutoScroll() {
+        if (edgeScrollRAF) { cancelAnimationFrame(edgeScrollRAF); edgeScrollRAF = null; }
+      }
+      function edgeAutoScrollTick() {
+        edgeScrollRAF = null;
+        if (!moved || !gridScrollEl) return;
+        var rect = gridScrollEl.getBoundingClientRect();
+        var dyScroll = 0, dxScroll = 0;
+        if (lastClientY < rect.top + EDGE_ZONE) dyScroll = -edgeScrollSpeed(rect.top + EDGE_ZONE - lastClientY);
+        else if (lastClientY > rect.bottom - EDGE_ZONE) dyScroll = edgeScrollSpeed(lastClientY - (rect.bottom - EDGE_ZONE));
+        if (lastClientX < rect.left + EDGE_ZONE) dxScroll = -edgeScrollSpeed(rect.left + EDGE_ZONE - lastClientX);
+        else if (lastClientX > rect.right - EDGE_ZONE) dxScroll = edgeScrollSpeed(lastClientX - (rect.right - EDGE_ZONE));
+
+        var scrolled = false;
+        if (dyScroll) {
+          var beforeTop = gridScrollEl.scrollTop;
+          gridScrollEl.scrollTop = clamp(beforeTop + dyScroll, 0, gridScrollEl.scrollHeight - gridScrollEl.clientHeight);
+          scrollCompY += gridScrollEl.scrollTop - beforeTop;
+          scrolled = scrolled || gridScrollEl.scrollTop !== beforeTop;
+        }
+        if (dxScroll) {
+          var beforeLeft = gridScrollEl.scrollLeft;
+          gridScrollEl.scrollLeft = clamp(beforeLeft + dxScroll, 0, gridScrollEl.scrollWidth - gridScrollEl.clientWidth);
+          scrollCompX += gridScrollEl.scrollLeft - beforeLeft;
+          scrolled = scrolled || gridScrollEl.scrollLeft !== beforeLeft;
+        }
+        if (scrolled) applyDragVisual();
+        edgeScrollRAF = requestAnimationFrame(edgeAutoScrollTick);
+      }
+
       function onMove(e2) {
         if (e2.cancelable) e2.preventDefault();   // жест взведён — держим страницу от прокрутки
-        var dx = e2.clientX - startX, dy = e2.clientY - startY;
-        if (!moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        lastClientX = e2.clientX; lastClientY = e2.clientY;
+        if (!moved && (Math.abs(lastClientX - startX) > 3 || Math.abs(lastClientY - startY) > 3)) {
           moved = true;
           el.classList.add('dragging');
           el.style.left = '2px';
           el.style.width = 'calc(100% - 4px)';
+          edgeScrollRAF = requestAnimationFrame(edgeAutoScrollTick);
         }
         if (!moved) return;
-        el.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
-
-        previewStart = clamp(snap(yToMinutes(frozen, originY + dy)), DAY_START, DAY_END - duration);
-        var targetCol = dayColAtPoint(e2.clientX);
-        if (targetCol) previewDay = Number(targetCol.dataset.day);
+        applyDragVisual();
       }
       function onUp(e2) {
+        stopEdgeAutoScroll();
         try { el.releasePointerCapture(pid); } catch (x) {}
         el.removeEventListener('pointermove', onMove);
         el.removeEventListener('pointerup', onUp);
@@ -1620,7 +1705,7 @@ import { firebaseConfig, DEFAULT_SCHEDULE_PATH, SCHEDULE_PATH_BY_UID } from './f
       armPointerGesture(e, function () {
         try { el.setPointerCapture(pid); } catch (x) {}
         el.style.touchAction = 'none';
-        beginInteraction();
+        beginInteraction();   // здесь же блокируется прокрутка #grid-scroll жестом (см. beginInteraction)
         frozen = currentLayout;
         duration = ev.end - ev.start;
         originY = minutesToY(frozen, ev.start);
